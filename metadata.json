@@ -1,0 +1,6 @@
+{
+  "name": "HeyLook",
+  "description": "All-in-one social platform combining real-time WhatsApp, Facebook, and Instagram experiences.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
