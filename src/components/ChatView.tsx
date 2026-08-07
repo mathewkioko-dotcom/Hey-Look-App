@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Send,
   Image as ImageIcon,
@@ -78,380 +78,85 @@ import {
   Table,
   Upload,
   ChevronDown,
-} from 'lucide-react';
+  Radio,
+} from "lucide-react";
 
-import { Conversation, ChatMessage, Profile, MessageDeliveryStatus } from '../types';
-import { MessageStatus } from './MessageStatus';
-import { usePresence } from '../hooks/usePresence';
-import { chatService, filterVanishingMessages } from '../services/chatService';
-import { ollamaService } from '../services/ollamaService';
-import { hymliAiService, HYMLI_AI_BOT_ID } from '../services/hymliAiService';
-import { AVAILABLE_MODELS, checkModelAccess, ModelOption } from '../services/aiRouterService';
-import { UpgradeModal } from './UpgradeModal';
-import { InteractiveCanvas } from './canvas/InteractiveCanvas';
-import { useSubscription } from '../hooks/useSubscription';
-import { parseDocumentContent } from '../lib/plugins/documentDeepDive';
-import { CodeBlock } from './chat/CodeBlock';
-import { MindMapViewer } from './chat/MindMapViewer';
-import { InstagramGridPlanner } from './chat/InstagramGridPlanner';
-import { ExpenseChartWidget } from './chat/ExpenseChartWidget';
-import { VoiceNoteSummaryWidget } from './chat/VoiceNoteSummaryWidget';
-import { StoryPollWidget } from './chat/StoryPollWidget';
-import { DMGhostwriterWidget } from './chat/DMGhostwriterWidget';
-import { SkillCourseWidget } from './chat/SkillCourseWidget';
-import { FactCheckWidget } from './chat/FactCheckWidget';
-import { WorkoutWidget } from './chat/WorkoutWidget';
-import { MealPlannerWidget } from './chat/MealPlannerWidget';
-import { CodeAuditWidget } from './chat/CodeAuditWidget';
-import { TravelPlannerWidget } from './chat/TravelPlannerWidget';
-import { ResumeOptimizerWidget } from './chat/ResumeOptimizerWidget';
-import { MeetingNotesWidget } from './chat/MeetingNotesWidget';
-import { VocabBuilderWidget } from './chat/VocabBuilderWidget';
-import { ContractAnalyzerWidget } from './chat/ContractAnalyzerWidget';
-import { TechStackEstimatorWidget } from './chat/TechStackEstimatorWidget';
-import { InterviewPrepWidget } from './chat/InterviewPrepWidget';
-import { PRReviewerWidget } from './chat/PRReviewerWidget';
-import { SqlBuilderWidget } from './chat/SqlBuilderWidget';
-import { PortfolioRebalancerWidget } from './chat/PortfolioRebalancerWidget';
-import { RoadmapPlannerWidget } from './chat/RoadmapPlannerWidget';
-import { SupportTicketWidget } from './chat/SupportTicketWidget';
-import { PaperSummarizerWidget } from './chat/PaperSummarizerWidget';
-import { InvoiceWidget } from './chat/InvoiceWidget';
+import {
+  Conversation,
+  ChatMessage,
+  Profile,
+  MessageDeliveryStatus,
+  Beacon,
+  BeaconComment,
+  ConversationPreferences,
+} from "../types";
+import { BeaconModal } from "./BeaconModal";
+import { BeaconViewer } from "./BeaconViewer";
+import { MessageStatus } from "./MessageStatus";
+import { usePresence } from "../hooks/usePresence";
+import { chatService, filterVanishingMessages } from "../services/chatService";
+import { ollamaService } from "../services/ollamaService";
+import { hymliAiService, HYMLI_AI_BOT_ID } from "../services/hymliAiService";
+import {
+  AVAILABLE_MODELS,
+  checkModelAccess,
+  ModelOption,
+} from "../services/aiRouterService";
+import { UpgradeModal } from "./UpgradeModal";
+import { InteractiveCanvas } from "./canvas/InteractiveCanvas";
+import { useSubscription } from "../hooks/useSubscription";
+import { parseDocumentContent } from "../lib/plugins/documentDeepDive";
+import {
+  getMessageDateLabel,
+  renderMessageTextWithCodeBlocks,
+} from "./chat/MessageContentRenderer";
 
-import { useWebRTCCall } from '../hooks/useWebRTCCall';
-import { CallOverlay } from './CallOverlay';
-import { formatNauticalPresence } from '../utils/formatTime';
-import { AttachmentModals } from './chat/AttachmentModals';
-import { RoomModals } from './chat/RoomModals';
-import { ProfileCardModal } from './chat/ProfileCardModal';
+import { CallOverlay } from "./CallOverlay";
+import { getLivePresenceLabel } from "../hooks/usePresence";
+import { useTypingIndicator } from "../hooks/useTypingIndicator";
+import { useVoiceRecorder, formatClock } from "../hooks/useVoiceRecorder";
+import { WaveformPlayer } from "./chat/WaveformPlayer";
+import { AttachmentModals } from "./chat/AttachmentModals";
+import { RoomModals } from "./chat/RoomModals";
+import { ProfileCardModal } from "./chat/ProfileCardModal";
+import {
+  RoomSettingsSidebar,
+  RoomSettingsTab,
+  RoomModalType,
+  WallpaperTheme,
+} from "./chat/RoomSettingsSidebar";
+import { GroupManagementModal } from "./chat/GroupManagementModal";
+import { HymliToolsModal } from "./ai/HymliToolsModal";
+import { ChatHeader } from "./chat/ChatHeader";
+import {
+  CommandPalette,
+  BotCommand,
+  BOT_COMMANDS,
+} from "./chat/CommandPalette";
+import { MessageActionSheet } from "./chat/MessageActionSheet";
+import { ChatInfoDrawer } from "./chat/ChatInfoDrawer";
+import {
+  AttachmentHub,
+  AttachmentHubResult,
+} from "./chat/AttachmentHub";
+// WebRTC call state. When provided (from MainLayout/global scope), ChatView
+// uses the shared handler so incoming-call signaling remains active across all
+// tabs; when omitted, it falls back to its own local instance.
+import { useWebRTCCall, WebRTCState } from "../hooks/useWebRTCCall";
 
 interface ChatViewProps {
   activeConv: Conversation;
   currentUser: Profile;
   isDark: boolean;
   onBack?: () => void;
-  onUpdateConversation?: (convId: string, lastMsg: string, newMsg?: ChatMessage, cleared?: boolean) => void;
+  onUpdateConversation?: (
+    convId: string,
+    lastMsg: string,
+    newMsg?: ChatMessage,
+    cleared?: boolean,
+  ) => void;
+  webrtc?: WebRTCState;
 }
-
-// Helper: Format Date Labels for Inline Dividers & Sticky Floating Badge
-const getMessageDateLabel = (dateString: string): string => {
-  if (!dateString) return '';
-  const messageDate = new Date(dateString);
-  const now = new Date();
-
-  const msgZero = new Date(messageDate.getFullYear(), messageDate.getMonth(), messageDate.getDate());
-  const nowZero = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-  const diffTime = nowZero.getTime() - msgZero.getTime();
-  const diffDays = Math.round(diffTime / (1000 * 3600 * 24));
-
-  if (diffDays === 0) return 'Today';
-  if (diffDays === 1) return 'Yesterday';
-  if (diffDays > 1 && diffDays < 7) {
-    return messageDate.toLocaleDateString([], { weekday: 'long' });
-  }
-
-  const day = String(messageDate.getDate()).padStart(2, '0');
-  const month = String(messageDate.getMonth() + 1).padStart(2, '0');
-  const year = messageDate.getFullYear();
-  return `${day}/${month}/${year}`;
-};
-
-// Helper: Render Message Content with Code Blocks & WebAssembly Code Interpreter & Mind Maps
-const renderMessageTextWithCodeBlocks = (text: string) => {
-  if (!text) return null;
-  const codeBlockRegex = /```([a-zA-Z0-9_\s-]*)\n([\s\S]*?)```/g;
-  const parts = [];
-  let lastIndex = 0;
-  let match;
-
-  while ((match = codeBlockRegex.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      parts.push({
-        type: 'text',
-        content: text.substring(lastIndex, match.index),
-      });
-    }
-
-    parts.push({
-      type: 'code',
-      language: (match[1] || 'python').trim(),
-      content: match[2],
-    });
-
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < text.length) {
-    parts.push({
-      type: 'text',
-      content: text.substring(lastIndex),
-    });
-  }
-
-  if (parts.length === 0) {
-    return <p className="leading-relaxed whitespace-pre-wrap">{text}</p>;
-  }
-
-  return (
-    <div className="space-y-2">
-      {parts.map((part, idx) => {
-        if (part.type === 'code') {
-          const langLower = part.language.toLowerCase();
-          if (langLower.includes('paper-summarizer') || langLower.includes('papersummarizer') || langLower.includes('paper-summary')) {
-            try {
-              const paperData = JSON.parse(part.content.trim());
-              if (paperData && (paperData.title || Array.isArray(paperData.keyFindings))) {
-                return <PaperSummarizerWidget key={idx} data={paperData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse paper-summarizer JSON:', e);
-            }
-          }
-          if (langLower.includes('invoice-generator') || langLower.includes('invoicegenerator') || langLower.includes('invoice')) {
-            try {
-              const invoiceData = JSON.parse(part.content.trim());
-              if (invoiceData && (invoiceData.invoiceNumber || invoiceData.clientName || Array.isArray(invoiceData.items))) {
-                return <InvoiceWidget key={idx} invoice={invoiceData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse invoice-generator JSON:', e);
-            }
-          }
-          if (langLower.includes('sql-builder') || langLower.includes('sqlbuilder')) {
-            try {
-              const sqlData = JSON.parse(part.content.trim());
-              if (sqlData && (sqlData.queryName || sqlData.sql)) {
-                return <SqlBuilderWidget key={idx} query={sqlData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse sql-builder JSON:', e);
-            }
-          }
-          if (langLower.includes('portfolio-rebalancer') || langLower.includes('portfoliorebalancer')) {
-            try {
-              const portfolioData = JSON.parse(part.content.trim());
-              if (portfolioData && (portfolioData.portfolioName || Array.isArray(portfolioData.items))) {
-                return <PortfolioRebalancerWidget key={idx} portfolio={portfolioData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse portfolio-rebalancer JSON:', e);
-            }
-          }
-          if (langLower.includes('roadmap-planner') || langLower.includes('roadmapplanner')) {
-            try {
-              const roadmapData = JSON.parse(part.content.trim());
-              if (roadmapData && (roadmapData.projectName || Array.isArray(roadmapData.items))) {
-                return <RoadmapPlannerWidget key={idx} data={roadmapData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse roadmap-planner JSON:', e);
-            }
-          }
-          if (langLower.includes('support-ticket') || langLower.includes('supportticket')) {
-            try {
-              const ticketData = JSON.parse(part.content.trim());
-              if (ticketData && (ticketData.ticketId || ticketData.customerName)) {
-                return <SupportTicketWidget key={idx} ticket={ticketData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse support-ticket JSON:', e);
-            }
-          }
-          if (langLower.includes('interview-prep') || langLower.includes('interviewprep')) {
-            try {
-              const prepData = JSON.parse(part.content.trim());
-              if (prepData && (prepData.targetRole || Array.isArray(prepData.questions))) {
-                return <InterviewPrepWidget key={idx} prep={prepData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse interview-prep JSON:', e);
-            }
-          }
-          if (langLower.includes('pr-reviewer') || langLower.includes('prreviewer') || langLower.includes('pr-review')) {
-            try {
-              const reviewData = JSON.parse(part.content.trim());
-              if (reviewData && (reviewData.prTitle || Array.isArray(reviewData.files))) {
-                return <PRReviewerWidget key={idx} review={reviewData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse pr-reviewer JSON:', e);
-            }
-          }
-          if (langLower.includes('contract-analyzer') || langLower.includes('contractanalyzer')) {
-            try {
-              const analysisData = JSON.parse(part.content.trim());
-              if (analysisData && (analysisData.documentTitle || Array.isArray(analysisData.risks))) {
-                return <ContractAnalyzerWidget key={idx} analysis={analysisData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse contract-analyzer JSON:', e);
-            }
-          }
-          if (langLower.includes('techstack-estimator') || langLower.includes('techstackestimator') || langLower.includes('tech-stack')) {
-            try {
-              const estimateData = JSON.parse(part.content.trim());
-              if (estimateData && (estimateData.projectName || Array.isArray(estimateData.breakdown))) {
-                return <TechStackEstimatorWidget key={idx} estimate={estimateData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse techstack-estimator JSON:', e);
-            }
-          }
-          if (langLower.includes('meeting-notes') || langLower.includes('meetingnotes')) {
-            try {
-              const notesData = JSON.parse(part.content.trim());
-              if (notesData && (notesData.title || Array.isArray(notesData.actionItems))) {
-                return <MeetingNotesWidget key={idx} notes={notesData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse meeting-notes JSON:', e);
-            }
-          }
-          if (langLower.includes('vocab-builder') || langLower.includes('vocabbuilder')) {
-            try {
-              const vocabData = JSON.parse(part.content.trim());
-              if (vocabData && (vocabData.targetLanguage || Array.isArray(vocabData.words))) {
-                return <VocabBuilderWidget key={idx} data={vocabData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse vocab-builder JSON:', e);
-            }
-          }
-          if (langLower.includes('travel-plan') || langLower.includes('travelplan')) {
-            try {
-              const travelData = JSON.parse(part.content.trim());
-              if (travelData && (travelData.destination || Array.isArray(travelData.days))) {
-                return <TravelPlannerWidget key={idx} plan={travelData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse travel-plan JSON:', e);
-            }
-          }
-          if (langLower.includes('resume-optimize') || langLower.includes('resumeoptimize')) {
-            try {
-              const resumeData = JSON.parse(part.content.trim());
-              if (resumeData && (resumeData.jobTitle || Array.isArray(resumeData.missingKeywords))) {
-                return <ResumeOptimizerWidget key={idx} data={resumeData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse resume-optimize JSON:', e);
-            }
-          }
-          if (langLower.includes('meal-plan') || langLower.includes('mealplan')) {
-            try {
-              const mealData = JSON.parse(part.content.trim());
-              if (mealData && (mealData.dayTitle || Array.isArray(mealData.meals))) {
-                return <MealPlannerWidget key={idx} plan={mealData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse meal-plan JSON:', e);
-            }
-          }
-          if (langLower.includes('code-audit') || langLower.includes('codeaudit')) {
-            try {
-              const auditData = JSON.parse(part.content.trim());
-              if (auditData && Array.isArray(auditData.issues)) {
-                return <CodeAuditWidget key={idx} audit={auditData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse code-audit JSON:', e);
-            }
-          }
-          if (langLower.includes('workout-plan') || langLower.includes('workoutplan')) {
-            try {
-              const planData = JSON.parse(part.content.trim());
-              if (planData && (planData.title || Array.isArray(planData.exercises))) {
-                return <WorkoutWidget key={idx} plan={planData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse workout-plan JSON:', e);
-            }
-          }
-          if (langLower.includes('fact-check') || langLower.includes('factcheck')) {
-            try {
-              const factData = JSON.parse(part.content.trim());
-              if (factData && factData.claim) {
-                return <FactCheckWidget key={idx} fact={factData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse fact-check JSON:', e);
-            }
-          }
-          if (langLower.includes('dm-ghostwriter')) {
-            try {
-              const ghostwriterData = JSON.parse(part.content.trim());
-              if (ghostwriterData && Array.isArray(ghostwriterData.replies)) {
-                return <DMGhostwriterWidget key={idx} data={ghostwriterData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse dm-ghostwriter JSON:', e);
-            }
-          }
-          if (langLower.includes('skill-course')) {
-            try {
-              const courseData = JSON.parse(part.content.trim());
-              if (courseData && courseData.courseTitle) {
-                return <SkillCourseWidget key={idx} course={courseData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse skill-course JSON:', e);
-            }
-          }
-          if (langLower.includes('voice-summary')) {
-            try {
-              const voiceData = JSON.parse(part.content.trim());
-              if (voiceData && Array.isArray(voiceData.bulletSummary)) {
-                return <VoiceNoteSummaryWidget key={idx} summary={voiceData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse voice summary JSON:', e);
-            }
-          }
-          if (langLower.includes('story-poll')) {
-            try {
-              const pollData = JSON.parse(part.content.trim());
-              if (pollData && pollData.question) {
-                return <StoryPollWidget key={idx} poll={pollData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse story poll JSON:', e);
-            }
-          }
-          if (langLower.includes('expense-log')) {
-            try {
-              const expenseData = JSON.parse(part.content.trim());
-              if (expenseData && expenseData.total !== undefined && Array.isArray(expenseData.items)) {
-                return <ExpenseChartWidget key={idx} summary={expenseData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse expense JSON:', e);
-            }
-          }
-          if (langLower.includes('ig-grid')) {
-            try {
-              const postsData = JSON.parse(part.content.trim());
-              if (Array.isArray(postsData)) {
-                return <InstagramGridPlanner key={idx} posts={postsData} />;
-              }
-            } catch (e) {
-              console.error('[ChatView] Failed to parse ig-grid JSON:', e);
-            }
-          }
-          if (langLower.startsWith('mermaid') || part.content.trim().startsWith('mindmap') || part.content.trim().startsWith('graph')) {
-            return <MindMapViewer key={idx} chartDefinition={part.content} />;
-          }
-          return <CodeBlock key={idx} code={part.content} language={part.language} />;
-        }
-        return (
-          <p key={idx} className="leading-relaxed whitespace-pre-wrap">
-            {part.content}
-          </p>
-        );
-      })}
-    </div>
-  );
-};
 
 export const ChatView: React.FC<ChatViewProps> = ({
   activeConv,
@@ -459,33 +164,123 @@ export const ChatView: React.FC<ChatViewProps> = ({
   isDark,
   onBack,
   onUpdateConversation,
+  webrtc: propWebRTC,
 }) => {
-  const [messages, setMessages] = useState<ChatMessage[]>(activeConv.messages || []);
-  const [inputText, setInputText] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>(
+    activeConv.messages || [],
+  );
+  const [inputText, setInputText] = useState("");
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [vanishSeconds, setVanishSeconds] = useState<number | null>(null);
 
+  // VOICE NOTE RECORDER STATE (WhatsApp-style inline recorder)
+  const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
+  const [isSendingVoice, setIsSendingVoice] = useState(false);
+  const voiceRecorder = useVoiceRecorder(currentUser.id);
+
   // MENU 1: Attachment Drawer State
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
-  const [attachmentCategory, setAttachmentCategory] = useState<'docs' | 'media' | 'legal' | 'tools'>('docs');
-  const [activeAttachmentModal, setActiveAttachmentModal] = useState<string | null>(null);
+  const [attachmentCategory, setAttachmentCategory] = useState<
+    "docs" | "media" | "legal" | "tools"
+  >("docs");
+  const [activeAttachmentModal, setActiveAttachmentModal] = useState<
+    string | null
+  >(null);
+
+  // ATTACHMENT & MEDIA PICKER HUB (10 rich features)
+  const [isAttachmentHubOpen, setIsAttachmentHubOpen] = useState(false);
 
   // MENU 2: Message Contextual Actions Popover State
   const [activeMsgMenuId, setActiveMsgMenuId] = useState<string | null>(null);
-  const [activeMsgMenuTab, setActiveMsgMenuTab] = useState<'refine' | 'organize' | 'insights' | 'privacy'>('refine');
+  const [activeMsgMenuTab, setActiveMsgMenuTab] = useState<
+    "refine" | "organize" | "insights" | "privacy"
+  >("refine");
+  // NEW Advanced Message Action Sheet: message it acts on (null = closed)
+  const [actionSheetMessage, setActionSheetMessage] = useState<ChatMessage | null>(null);
+  const [actionSheetPinned, setActionSheetPinned] = useState(false);
+
+  const openMessageActionSheet = (msg: ChatMessage) => {
+    setActionSheetMessage(msg);
+    setActionSheetPinned(pinnedMessage?.id === msg.id);
+  };
+
+  const closeMessageActionSheet = () => {
+    setActionSheetMessage(null);
+  };
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null);
-  const [editingMsgText, setEditingMsgText] = useState<string>('');
+  const [editingMsgText, setEditingMsgText] = useState<string>("");
   const [pinnedMessage, setPinnedMessage] = useState<ChatMessage | null>(null);
+
+  // BEACON (Instagram-style story ring) state
+  const [beacons, setBeacons] = useState<Beacon[]>([]);
+  const [isBeaconModalOpen, setIsBeaconModalOpen] = useState(false);
+  const [isBeaconViewerOpen, setIsBeaconViewerOpen] = useState(false);
+  const [activeBeaconIndex, setActiveBeaconIndex] = useState(0);
+  const [anchoredBeaconId, setAnchoredBeaconId] = useState<string | null>(null);
+
+  // FULL-BLEED IMAGE LIGHTBOX STATE
+  const [lightboxImage, setLightboxImage] = useState<{
+    src: string;
+    caption: string;
+  } | null>(null);
+
   const [lockedMsgIds, setLockedMsgIds] = useState<string[]>([]);
   const [unlockedMsgIds, setUnlockedMsgIds] = useState<string[]>([]);
-  const [passcodeModalMsgId, setPasscodeModalMsgId] = useState<string | null>(null);
-  const [passcodeInput, setPasscodeInput] = useState<string>('');
+  const [passcodeModalMsgId, setPasscodeModalMsgId] = useState<string | null>(
+    null,
+  );
+  const [passcodeInput, setPasscodeInput] = useState<string>("");
   const [blurredMsgIds, setBlurredMsgIds] = useState<string[]>([]);
+
+// GROUP MANAGEMENT MATRIX MODAL STATE
+  const [isGroupMgmtOpen, setIsGroupMgmtOpen] = useState(false);
+
+  // CHAT INFO DRAWER (WhatsApp-style) OPEN STATE + PER-CONVERSATION PREFS
+  const [isChatInfoOpen, setIsChatInfoOpen] = useState(false);
+  const [chatPrefs, setChatPrefs] = useState<ConversationPreferences>({
+    conversationId: activeConv.id,
+    mutedUntil: null,
+    disappearingTimer: "Off",
+    wallpaper: null,
+    isLocked: false,
+    lockConfig: null,
+    isBlocked: false,
+    blockReason: undefined,
+  });
+
+  // Persist Chat Info preference changes locally (and to Supabase when table exists)
+  const handleChatPrefsChange = (patch: Partial<ConversationPreferences>) => {
+    setChatPrefs((prev) => ({ ...prev, ...patch }));
+    try {
+      const key = `heylook_prefs_${activeConv.id}`;
+      localStorage.setItem(key, JSON.stringify({ ...chatPrefs, ...patch }));
+    } catch (e) {
+      console.warn("[ChatInfoDrawer] Failed to persist prefs locally:", e);
+    }
+  };
+
+  // Restore persisted Chat Info prefs on mount / conversation change
+  useEffect(() => {
+    try {
+      const key = `heylook_prefs_${activeConv.id}`;
+      const stored = localStorage.getItem(key);
+      if (stored) {
+        const parsed = JSON.parse(stored) as ConversationPreferences;
+        setChatPrefs((prev) => ({ ...prev, ...parsed }));
+      }
+    } catch (e) {
+      console.warn("[ChatInfoDrawer] Failed to restore prefs:", e);
+    }
+  }, [activeConv.id]);
 
   // MENU 3: Room Settings Slide-Out Sidebar State
   const [isRoomMenuOpen, setIsRoomMenuOpen] = useState(false);
-  const [activeRoomMenuTab, setActiveRoomMenuTab] = useState<'security' | 'efficiency' | 'visual' | 'automations'>('security');
-  const [activeRoomModal, setActiveRoomModal] = useState<'barcode' | 'assets' | 'transcript' | 'crm' | 'devices' | null>(null);
+  const [activeRoomMenuTab, setActiveRoomMenuTab] = useState<
+    "security" | "efficiency" | "visual" | "automations"
+  >("security");
+  const [activeRoomModal, setActiveRoomModal] = useState<
+    "barcode" | "assets" | "transcript" | "crm" | "devices" | null
+  >(null);
   const [isRoomLocked, setIsRoomLocked] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isWatermarkActive, setIsWatermarkActive] = useState(false);
@@ -495,7 +290,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [focusMode, setFocusMode] = useState(false);
   const [presentationFont, setPresentationFont] = useState(false);
   const [compactRows, setCompactRows] = useState(false);
-  const [moodWallpaper, setMoodWallpaper] = useState<'default' | 'nautical' | 'midnight' | 'cyberpunk'>('default');
+  const [moodWallpaper, setMoodWallpaper] = useState<
+    "default" | "nautical" | "midnight" | "cyberpunk"
+  >("default");
   const [autoReplyBot, setAutoReplyBot] = useState(false);
   const [voiceAutoTranscribe, setVoiceAutoTranscribe] = useState(true);
   const [lowDataMode, setLowDataMode] = useState(false);
@@ -503,17 +300,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // MENU 4: Header User Profile Card Modal State
   const [isUserProfileModalOpen, setIsUserProfileModalOpen] = useState(false);
   const [isVipPriority, setIsVipPriority] = useState(false);
-  const [languageOverride, setLanguageOverride] = useState('English (US)');
+  const [languageOverride, setLanguageOverride] = useState("English (US)");
 
   // Model Selector & Subscription Upgrade Modal States
-  const [selectedModelId, setSelectedModelId] = useState<string>('gemini-2.5-flash');
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState<boolean>(false);
+  const [selectedModelId, setSelectedModelId] =
+    useState<string>("gemini-2.5-flash");
+  const [isModelDropdownOpen, setIsModelDropdownOpen] =
+    useState<boolean>(false);
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState<boolean>(false);
-  const [upgradeTargetModelId, setUpgradeTargetModelId] = useState<string>('claude-3-5-sonnet');
-  const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
+  const [upgradeTargetModelId, setUpgradeTargetModelId] =
+    useState<string>("claude-3-5-sonnet");
+const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
+  const [isHymliToolsOpen, setIsHymliToolsOpen] = useState<boolean>(false);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
-  const handlePdfFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePdfFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -523,19 +326,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
       const pageMatches = extractedText.match(/--- Page \d+ ---/g);
       const pages = pageMatches ? pageMatches.length : 1;
 
-      showNotice(`Successfully parsed ${file.name} (${pages} pages). Transmitting to AI...`);
+      showNotice(
+        `Successfully parsed ${file.name} (${pages} pages). Transmitting to AI...`,
+      );
 
       // Format document prompt for Hymli AI
       const docPrompt = `[Document Deep-Dive: ${file.name} - ${pages} Pages]\n${extractedText.slice(0, 15000)}\n\nPlease analyze this document and summarize key insights.`;
-      
+
       hymliAiService.askHymli(docPrompt, currentUser.id, activeConv.id);
     } catch (err: any) {
-      showNotice(`PDF Error: ${err?.message || 'Failed to parse document'}`);
+      showNotice(`PDF Error: ${err?.message || "Failed to parse document"}`);
     } finally {
-      if (e.target) e.target.value = '';
+      if (e.target) e.target.value = "";
     }
   };
-
 
   const { isSubscribed } = useSubscription();
 
@@ -543,7 +347,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
     if (isSubscribed && upgradeTargetModelId) {
       setSelectedModelId(upgradeTargetModelId);
       hymliAiService.setModel(upgradeTargetModelId);
-      showNotice(`Payment confirmed! Active AI Model switched to ${upgradeTargetModelId}`);
+      showNotice(
+        `Payment confirmed! Active AI Model switched to ${upgradeTargetModelId}`,
+      );
     }
   }, [isSubscribed]);
 
@@ -568,31 +374,81 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [multiSelectMode, setMultiSelectMode] = useState(false);
   const [selectedMsgIds, setSelectedMsgIds] = useState<string[]>([]);
   const [showAiPromptToolbar, setShowAiPromptToolbar] = useState(false);
-  const [aiPromptInput, setAiPromptInput] = useState('');
-  const [msgReactions, setMsgReactions] = useState<Record<string, string[]>>({});
-  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null);
+  const [aiPromptInput, setAiPromptInput] = useState("");
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
+  const [msgReactions, setMsgReactions] = useState<Record<string, string[]>>(
+    {},
+  );
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(
+    null,
+  );
 
   // Search & Jump to Message States
   const [isSearching, setIsSearching] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   const [highlightedMsgId, setHighlightedMsgId] = useState<string | null>(null);
 
   // Floating Sticky Scroll Date State
-  const [floatingDate, setFloatingDate] = useState<string>('Today');
+  const [floatingDate, setFloatingDate] = useState<string>("Today");
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-  // Network & WebRTC Hook
+// Network & WebRTC Hook
   const [pingMs, setPingMs] = useState<number>(42);
-  const webrtc = useWebRTCCall(currentUser);
-  const { isUserOnline } = usePresence(currentUser.id);
+  // Use the globally-managed WebRTC instance (owned by MainLayout) when
+  // available so incoming-call signaling stays active across all tabs.
+  // Falls back to a local instance when this ChatView is rendered standalone.
+  const localWebRTC = useWebRTCCall(currentUser);
+  const webrtc = propWebRTC || localWebRTC;
+  const { isUserOnline, onlinePresences } = usePresence(currentUser.id);
+  const { isUserTyping, sendTyping } = useTypingIndicator();
 
   const targetUserOnline = isUserOnline(activeConv.user.id);
-  const targetLastSeen = activeConv.user.last_seen || activeConv.user.last_anchored;
+  const targetLastSeen =
+    activeConv.user.last_seen || activeConv.user.last_anchored;
+
+  // Map the active conversation's user (Conversation.user shape) into a full
+  // Profile so WebRTC startCall / calls receive the required fields.
+  const targetProfile: Profile = {
+    id: activeConv.user.id,
+    username: activeConv.user.name,
+    full_name: activeConv.user.name,
+    avatar_url: activeConv.user.avatar,
+    is_online: activeConv.user.is_online,
+    last_seen: activeConv.user.last_seen,
+    nautical_presence: activeConv.user.nautical_presence,
+    custom_status: activeConv.user.custom_status,
+    last_anchored: activeConv.user.last_anchored,
+  };
+
+  // Live presence broadcast state for the active contact (if any)
+  const livePresence = onlinePresences[activeConv.user.id];
+
+  // Real-time typing indicator state for the remote user in this room.
+  const remoteUserTyping = isUserTyping(activeConv.user.id, activeConv.id);
+  // "Nevermind" message shown for 3s after the remote user clears their box.
+  const [showNevermind, setShowNevermind] = useState(false);
+  const nevermindTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevRemoteTyping = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (remoteUserTyping) {
+      // Remote is typing — make sure "Nevermind" is hidden.
+      setShowNevermind(false);
+    } else if (prevRemoteTyping.current) {
+      // Remote just cleared their box — show "Nevermind" for 3s then fade out.
+      setShowNevermind(true);
+      if (nevermindTimer.current) clearTimeout(nevermindTimer.current);
+      nevermindTimer.current = setTimeout(() => {
+        setShowNevermind(false);
+      }, 3000);
+    }
+    prevRemoteTyping.current = remoteUserTyping;
+  }, [remoteUserTyping]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
   const showNotice = (msg: string) => {
@@ -607,13 +463,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
     let unsubscribe: (() => void) | undefined;
 
     const loadMessages = async () => {
-      const fetched = await chatService.fetchMessages(currentUser.id, activeConv.user.id);
+      const fetched = await chatService.fetchMessages(
+        currentUser.id,
+        activeConv.user.id,
+      );
       if (fetched && fetched.length > 0) {
         setMessages(fetched);
       } else if (activeConv.messages && activeConv.messages.length > 0) {
         const formatted = activeConv.messages.map((m) => ({
           ...m,
-          status: (typeof m.status === 'number' ? m.status : m.is_me ? 1 : 3) as MessageDeliveryStatus,
+          status: (typeof m.status === "number"
+            ? m.status
+            : m.is_me
+              ? 1
+              : 3) as MessageDeliveryStatus,
         }));
         setMessages(filterVanishingMessages(formatted));
       }
@@ -636,9 +499,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
       },
       (updatedMsg) => {
         setMessages((prev) =>
-          prev.map((m) => (m.id === updatedMsg.id ? { ...m, status: updatedMsg.status } : m))
+          prev.map((m) =>
+            m.id === updatedMsg.id
+              ? {
+                  ...m,
+                  status: (updatedMsg.status ?? 3) as MessageDeliveryStatus,
+                }
+              : m,
+          ),
         );
-      }
+      },
     );
 
     return () => {
@@ -653,14 +523,15 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Scroll Observer for Floating Date Badge
   const handleScroll = () => {
     if (!chatScrollRef.current) return;
-    const dateElements = chatScrollRef.current.querySelectorAll('[data-date-label]');
-    let currentVisibleLabel = '';
+    const dateElements =
+      chatScrollRef.current.querySelectorAll("[data-date-label]");
+    let currentVisibleLabel = "";
 
     for (const el of Array.from(dateElements)) {
       const htmlEl = el as HTMLElement;
       const rect = htmlEl.getBoundingClientRect();
       if (rect.top <= 180) {
-        currentVisibleLabel = htmlEl.getAttribute('data-date-label') || '';
+        currentVisibleLabel = htmlEl.getAttribute("data-date-label") || "";
       }
     }
 
@@ -686,20 +557,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
             if (entry.isIntersecting) {
               chatService.markSubmerged(msg.id, currentUser.id);
               setMessages((prev) =>
-                prev.map((m) => (m.id === msg.id ? { ...m, status: 3 } : m))
+                prev.map((m) => (m.id === msg.id ? { ...m, status: 3 } : m)),
               );
               observer.disconnect();
               observerMap.current.delete(msg.id);
             }
           });
         },
-        { threshold: 0.5 }
+        { threshold: 0.5 },
       );
 
       observer.observe(node);
       observerMap.current.set(msg.id, observer);
     },
-    [currentUser.id]
+    [currentUser.id],
   );
 
   useEffect(() => {
@@ -713,26 +584,90 @@ export const ChatView: React.FC<ChatViewProps> = ({
     const val = e.target.value;
     setInputText(val);
 
-    if (val.startsWith('/')) {
+    // Broadcast typing state: active as soon as any non-space char is present,
+    // and stays active as long as text remains in the box (thinking pauses kept).
+    sendTyping(currentUser.id, activeConv.id, val.trim().length > 0);
+
+    if (val.startsWith("/")) {
       setShowAiPromptToolbar(true);
-    } else if (showAiPromptToolbar && !val.startsWith('/')) {
+    } else if (showAiPromptToolbar && !val.startsWith("/")) {
       setShowAiPromptToolbar(false);
     }
   };
 
+  // Inline list of commands used for the /help notice (kept in sync with the
+  // CommandPalette registry).
+  const BOT_COMMANDS_INLINE: { command: string }[] = [
+    { command: "/summarize" },
+    { command: "/generate-image" },
+    { command: "/rephrase" },
+    { command: "/polish" },
+    { command: "/translate" },
+    { command: "/tone" },
+    { command: "/action-items" },
+    { command: "/clear" },
+    { command: "/help" },
+  ];
+
+  // The text after "/" used to filter the command palette.
+  const commandQuery = inputText.startsWith("/") ? inputText.slice(1) : "";
+
+  // Commands matching the current query, used for the palette + keyboard nav.
+  const filteredCommands = BOT_COMMANDS.filter((c) =>
+    c.command.toLowerCase().includes(commandQuery.toLowerCase()),
+  );
+
+  // Resolve a Telegram-style bot command (and its argument) into an enriched
+  // Hymli AI prompt before the message is sent to the copilot thread.
+  const resolveCommandText = (raw: string): string => {
+    const trimmed = raw.trim();
+    const [head, ...rest] = trimmed.split(" ");
+    const arg = rest.join(" ").trim();
+    const lower = head.toLowerCase();
+
+    switch (lower) {
+      case "/summarize":
+        return "📋 [Hymli Copilot · Summarize]\nPlease provide an executive summary of our recent conversation, highlighting key decisions, action items, and open questions.";
+      case "/generate-image":
+        return `🎨 [Hymli Copilot · Generate Image]\nPlease describe a detailed image concept${arg ? ` for: ${arg}` : " based on our conversation"} — output a vivid visual description a designer could render.`;
+      case "/rephrase":
+        return `✍️ [Hymli Copilot · Rephrase]\nPlease rephrase the following text more clearly and concisely, preserving meaning:${arg ? `\n"${arg}"` : ""}`;
+      case "/polish":
+        return `✨ [Hymli Copilot · Polish Tone]\nPlease rewrite the following in a polished, professional executive tone${arg ? `:\n"${arg}"` : "."}`;
+      case "/translate":
+        return `🌐 [Hymli Copilot · Translate]\nPlease translate the following text${arg ? `:\n"${arg}"` : " from our recent messages"} into fluent English (or the target language the user specifies).`;
+      case "/tone":
+        return `🎯 [Hymli Copilot · Tone Analyzer]\nPlease analyze the tone of the following text and summarize the emotional register${arg ? `:\n"${arg}"` : ""}.`;
+      case "/action-items":
+        return "✅ [Hymli Copilot · Action Items]\nPlease extract the most important action items from our recent conversation, each as a short single line.";
+      default:
+        return "";
+    }
+  };
+
   // Send Message Handler
-  const handleSendMessage = async (customType?: 'text' | 'image' | 'voice', imagePayloadUrl?: string) => {
+  const handleSendMessage = async (
+    customType?: "text" | "image" | "voice",
+    imagePayloadUrl?: string,
+  ) => {
     if (!inputText.trim() && !imagePayloadUrl) return;
+
+    // Resolve Telegram-style bot commands into enriched Hymli AI prompts.
+    const resolvedPrompt = resolveCommandText(inputText.trim());
 
     const burnAtTimestamp = vanishSeconds
       ? new Date(Date.now() + vanishSeconds * 1000).toISOString()
       : undefined;
 
     const msgData = {
+      room_id: activeConv.id,
       sender_id: currentUser.id,
       receiver_id: activeConv.user.id,
-      text: inputText.trim() || (customType === 'image' ? 'Sent encrypted media stream' : ''),
-      type: customType || (imagePayloadUrl ? 'image' : 'text'),
+      text:
+        resolvedPrompt ||
+        inputText.trim() ||
+        (customType === "image" ? "Sent encrypted media stream" : ""),
+      type: customType || (imagePayloadUrl ? "image" : "text"),
       image_url: imagePayloadUrl,
       created_at: new Date().toISOString(),
       burn_at: burnAtTimestamp,
@@ -741,16 +676,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
         ? {
             id: replyingTo.id,
             text: replyingTo.text,
-            sender_name: replyingTo.is_me ? currentUser.full_name : activeConv.user.name,
+            sender_name: replyingTo.is_me
+              ? currentUser.full_name
+              : activeConv.user.name,
           }
         : undefined,
     };
 
     const newMsg = await chatService.sendMessage(msgData);
     setMessages((prev) => [...prev, newMsg]);
-    setInputText('');
+    setInputText("");
     setReplyingTo(null);
     setShowAiPromptToolbar(false);
+    // Box cleared after sending — immediately stop broadcasting typing.
+    sendTyping(currentUser.id, activeConv.id, false);
 
     if (onUpdateConversation) {
       onUpdateConversation(activeConv.id, newMsg.text, newMsg);
@@ -759,8 +698,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     // Hymli AI Assistant Thread Auto-Response Engine
     const isHymliThread =
       activeConv.user.id === HYMLI_AI_BOT_ID ||
-      activeConv.user.name === 'Hymli AI' ||
-      activeConv.id.toLowerCase().includes('hymli');
+      activeConv.user.name === "Hymli AI" ||
+      activeConv.id.toLowerCase().includes("hymli");
 
     if (isHymliThread) {
       setTimeout(async () => {
@@ -769,9 +708,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             newMsg.text,
             currentUser.id,
             activeConv.id,
-            false
+            false,
           );
           const botMsgData = {
+            room_id: activeConv.id,
             sender_id: activeConv.user.id,
             receiver_id: currentUser.id,
             text: hymliReply,
@@ -783,12 +723,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
             onUpdateConversation(activeConv.id, hymliReply, botReply);
           }
         } catch (e) {
-          console.warn('[ChatView] Hymli AI response generation error:', e);
+          console.warn("[ChatView] Hymli AI response generation error:", e);
         }
       }, 400);
     } else if (autoReplyBot) {
       setTimeout(async () => {
         const botMsgData = {
+          room_id: activeConv.id,
           sender_id: activeConv.user.id,
           receiver_id: currentUser.id,
           text: `🤖 Auto-Reply Bot: Acknowledged "${newMsg.text.slice(0, 30)}...". Captain is currently anchored.`,
@@ -801,29 +742,181 @@ export const ChatView: React.FC<ChatViewProps> = ({
   };
 
   // Dispatch Attachment Handler
-  const handleDispatchAttachment = async (title: string, detail: string, cat: string, extraData?: any) => {
+  const handleDispatchAttachment = async (
+    title: string,
+    detail: string,
+    cat: string,
+    extraData?: any,
+  ) => {
     setIsAttachmentOpen(false);
     const attachmentText = `📎 [${cat.toUpperCase()}] ${title}\n▸ ${detail}`;
     const msgData = {
+      room_id: activeConv.id,
       sender_id: currentUser.id,
       receiver_id: activeConv.user.id,
       text: attachmentText,
       created_at: new Date().toISOString(),
-      metadata: { attachmentData: extraData }
+      metadata: { attachmentData: extraData },
     };
     const newMsg = await chatService.sendMessage(msgData);
     setMessages((prev) => [...prev, newMsg]);
     showNotice(`Dispatched ${title}`);
   };
 
+  // ATTACHMENT & MEDIA PICKER HUB SEND HANDLER
+  // Routes results from AttachmentHub to the correct message pipeline:
+  //   image/gif   → real image message (renders full-bleed + lightbox)
+  //   voice       → voice note message (renders WaveformPlayer)
+  //   code        → code snippet message (renders syntax-highlighted block)
+  //   doc/poll/contact/event/location/beacon → rich text dispatch
+  const handleAttachmentHubSend = async (result: AttachmentHubResult) => {
+    setIsAttachmentHubOpen(false);
+    try {
+      if (result.type === "image" || result.type === "gif") {
+        const msgData = {
+          room_id: activeConv.id,
+          sender_id: currentUser.id,
+          receiver_id: activeConv.user.id,
+          text: result.title,
+          type: "image" as const,
+          image_url: result.image_url,
+          created_at: new Date().toISOString(),
+        };
+        const newMsg = await chatService.sendMessage(msgData);
+        setMessages((prev) => [...prev, newMsg]);
+        if (onUpdateConversation) {
+          onUpdateConversation(activeConv.id, result.title, newMsg);
+        }
+        showNotice(result.title || "Media sent");
+        return;
+      }
+
+      if (result.type === "voice") {
+        const msgData = {
+          room_id: activeConv.id,
+          sender_id: currentUser.id,
+          receiver_id: activeConv.user.id,
+          text: result.title || "Voice note",
+          type: "voice" as const,
+          audio_url: result.image_url,
+          audio_duration: result.audio_duration,
+          created_at: new Date().toISOString(),
+        };
+        const newMsg = await chatService.sendMessage(msgData);
+        setMessages((prev) => [...prev, newMsg]);
+        if (onUpdateConversation) {
+          onUpdateConversation(activeConv.id, "🎤 Voice note", newMsg);
+        }
+        showNotice(result.detail || "Voice note sent");
+        return;
+      }
+
+      if (result.type === "code") {
+        const codeBlock = `\`\`\`${result.code_lang || "typescript"}\n${
+          result.code_content || ""
+        }\n\`\`\``;
+        const msgData = {
+          room_id: activeConv.id,
+          sender_id: currentUser.id,
+          receiver_id: activeConv.user.id,
+          text: `${result.title}\n${codeBlock}`,
+          created_at: new Date().toISOString(),
+          metadata: {
+            code_lang: result.code_lang,
+            code_content: result.code_content,
+            attachmentData: result.extra,
+          },
+        };
+        const newMsg = await chatService.sendMessage(msgData);
+        setMessages((prev) => [...prev, newMsg]);
+        if (onUpdateConversation) {
+          onUpdateConversation(activeConv.id, result.title, newMsg);
+        }
+        showNotice("Code snippet sent");
+        return;
+      }
+
+      // Fallback: rich text dispatch (doc, poll, contact, event, location, beacon)
+      const attachmentText = `[${result.category.toUpperCase()}] ${
+        result.title
+      } \u25B8 ${result.detail}`;
+      const msgData = {
+        room_id: activeConv.id,
+        sender_id: currentUser.id,
+        receiver_id: activeConv.user.id,
+        text: attachmentText,
+        created_at: new Date().toISOString(),
+        metadata: { attachmentData: result.extra },
+      };
+      const newMsg = await chatService.sendMessage(msgData);
+      setMessages((prev) => [...prev, newMsg]);
+      if (onUpdateConversation) {
+        onUpdateConversation(activeConv.id, result.title, newMsg);
+      }
+      showNotice(`Sent ${result.title}`);
+    } catch (err) {
+      console.warn("[ChatView] Attachment hub send error:", err);
+      showNotice("Could not send attachment");
+    }
+  };
+
+  // Send a recorded voice note: uploads happened in the recorder hook, so we
+  // just persist the public audio URL as a `type: "voice"` message.
+  const handleSendVoiceNote = async () => {
+    if (isSendingVoice) return;
+    setIsSendingVoice(true);
+    try {
+      const result = await voiceRecorder.stopRecording();
+      if (!result) {
+        setIsSendingVoice(false);
+        return;
+      }
+      const msgData = {
+        room_id: activeConv.id,
+        sender_id: currentUser.id,
+        receiver_id: activeConv.user.id,
+        text: "Voice note",
+        type: "voice" as const,
+        audio_url: result.audioUrl,
+        audio_duration: result.duration,
+        created_at: new Date().toISOString(),
+        reply_to_id: replyingTo?.id,
+        reply_preview: replyingTo
+          ? {
+              id: replyingTo.id,
+              text: replyingTo.text,
+              sender_name: replyingTo.is_me
+                ? currentUser.full_name
+                : activeConv.user.name,
+            }
+          : undefined,
+      };
+      const newMsg = await chatService.sendMessage(msgData);
+      setMessages((prev) => [...prev, newMsg]);
+      setReplyingTo(null);
+      setIsVoiceRecorderOpen(false);
+      showNotice("Voice note sent (E2EE encrypted)");
+      if (onUpdateConversation) {
+        onUpdateConversation(activeConv.id, "🎤 Voice note", newMsg);
+      }
+    } catch (err) {
+      console.warn("[ChatView] Failed to send voice note:", err);
+      showNotice("Could not send voice note");
+    } finally {
+      setIsSendingVoice(false);
+    }
+  };
+
   // Silent Edit
   const handleSaveSilentEdit = (msgId: string) => {
     if (!editingMsgText.trim()) return;
     setMessages((prev) =>
-      prev.map((m) => (m.id === msgId ? { ...m, text: editingMsgText, is_edited: true } : m))
+      prev.map((m) =>
+        m.id === msgId ? { ...m, text: editingMsgText, is_edited: true } : m,
+      ),
     );
     setEditingMsgId(null);
-    showNotice('Message Silently Edited');
+    showNotice("Message Silently Edited");
   };
 
   // Recall / Unsend Message
@@ -831,14 +924,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
     await chatService.deleteMessage(msgId);
     setMessages((prev) => prev.filter((m) => m.id !== msgId));
     setActiveMsgMenuId(null);
-    showNotice('Message Recalled & Unsent');
+    showNotice("Message Recalled & Unsent");
   };
 
   // AI Tone Polisher with Real Ollama Integration + Clean Metadata Storage
   const handlePolishTone = async (msg: ChatMessage) => {
     setActiveMsgMenuId(null);
-    showNotice('Polishing Tone via Ollama AI...');
-    const res = await ollamaService.generateTonePolish(msg.text, 'Executive');
+    showNotice("Polishing Tone via Ollama AI...");
+    const res = await ollamaService.generateTonePolish(msg.text, "Executive");
 
     setMessages((prev) =>
       prev.map((m) =>
@@ -848,22 +941,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
               metadata: {
                 ...m.metadata,
                 polishedText: res.result,
-                tone: 'Executive',
+                tone: "Executive",
               },
             }
-          : m
-      )
+          : m,
+      ),
     );
 
     if (res.isOffline) {
-      showNotice(res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve");
+      showNotice(
+        res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve",
+      );
     } else {
-      showNotice('Tone Polished Successfully');
+      showNotice("Tone Polished Successfully");
     }
   };
 
   // Instant Translation with Real Ollama Integration + Clean Metadata Storage
-  const handleTranslateMsg = async (msg: ChatMessage, targetLang = 'Spanish') => {
+  const handleTranslateMsg = async (
+    msg: ChatMessage,
+    targetLang = "Spanish",
+  ) => {
     setActiveMsgMenuId(null);
     showNotice(`Translating to ${targetLang} via Ollama...`);
     const res = await ollamaService.translateText(msg.text, targetLang);
@@ -879,12 +977,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 translatedLang: targetLang,
               },
             }
-          : m
-      )
+          : m,
+      ),
     );
 
     if (res.isOffline) {
-      showNotice(res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve");
+      showNotice(
+        res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve",
+      );
     } else {
       showNotice(`Translated to ${targetLang}`);
     }
@@ -893,7 +993,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // AI Fact Check with Real Ollama Integration + Clean Metadata Storage
   const handleFactCheckMsg = async (msg: ChatMessage) => {
     setActiveMsgMenuId(null);
-    showNotice('Fact-checking via Ollama AI...');
+    showNotice("Fact-checking via Ollama AI...");
     const res = await ollamaService.factCheckStatement(msg.text);
 
     setMessages((prev) =>
@@ -906,14 +1006,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 factCheck: res.result,
               },
             }
-          : m
-      )
+          : m,
+      ),
     );
 
     if (res.isOffline) {
-      showNotice(res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve");
+      showNotice(
+        res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve",
+      );
     } else {
-      showNotice('Fact-check Complete');
+      showNotice("Fact-check Complete");
     }
   };
 
@@ -921,14 +1023,19 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const handleGenerateAiSummary = async () => {
     setIsRoomMenuOpen(false);
     setIsSummarizerOpen(true);
-    setAiSummary('Analyzing chat history via Ollama AI...');
+    setAiSummary("Analyzing chat history via Ollama AI...");
 
-    const msgList = messages.map((m) => `${m.is_me ? currentUser.full_name : activeConv.user.name}: ${m.text}`);
+    const msgList = messages.map(
+      (m) =>
+        `${m.is_me ? currentUser.full_name : activeConv.user.name}: ${m.text}`,
+    );
     const res = await ollamaService.summarizeChat(msgList);
 
     setAiSummary(res.result);
     if (res.isOffline) {
-      showNotice(res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve");
+      showNotice(
+        res.error || "Ollama offline. Run OLLAMA_ORIGINS='*' ollama serve",
+      );
     }
   };
 
@@ -936,10 +1043,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const handleTogglePinMsg = (msg: ChatMessage) => {
     if (pinnedMessage?.id === msg.id) {
       setPinnedMessage(null);
-      showNotice('Message Unpinned');
+      showNotice("Message Unpinned");
     } else {
       setPinnedMessage(msg);
-      showNotice('Message Pinned to Top');
+      showNotice("Message Pinned to Top");
     }
     setActiveMsgMenuId(null);
   };
@@ -948,22 +1055,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const handleLockMsg = (msgId: string) => {
     if (lockedMsgIds.includes(msgId)) {
       setLockedMsgIds((prev) => prev.filter((id) => id !== msgId));
-      showNotice('Passcode Lock Removed');
+      showNotice("Passcode Lock Removed");
     } else {
       setLockedMsgIds((prev) => [...prev, msgId]);
-      showNotice('Passcode Lock Enabled (PIN: 1234)');
+      showNotice("Passcode Lock Enabled (PIN: 1234)");
     }
     setActiveMsgMenuId(null);
   };
 
   const handleUnlockPasscode = () => {
-    if (passcodeInput === '1234' && passcodeModalMsgId) {
+    if (passcodeInput === "1234" && passcodeModalMsgId) {
       setUnlockedMsgIds((prev) => [...prev, passcodeModalMsgId]);
       setPasscodeModalMsgId(null);
-      setPasscodeInput('');
-      showNotice('Message Unlocked');
+      setPasscodeInput("");
+      showNotice("Message Unlocked");
     } else {
-      showNotice('Incorrect Passcode (Use 1234)');
+      showNotice("Incorrect Passcode (Use 1234)");
     }
   };
 
@@ -972,10 +1079,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
     await chatService.clearHistory(currentUser.id, activeConv.user.id);
     setMessages([]);
     setIsRoomMenuOpen(false);
-    showNotice('Chat Canvas Cleared');
+    showNotice("Chat Canvas Cleared");
     if (onUpdateConversation) {
-      onUpdateConversation(activeConv.id, '', undefined, true);
+      onUpdateConversation(activeConv.id, "", undefined, true);
     }
+  };
+
+  // Execute a selected bot command. Commands that need an argument keep the
+  // input in "command mode" so the user can append their text; the command is
+  // resolved into an enriched Hymli AI prompt when the message is sent.
+  const handleCommandSelect = (cmd: BotCommand) => {
+    if (cmd.command === "/clear") {
+      handleClearHistory();
+      setInputText("");
+      setShowAiPromptToolbar(false);
+      return;
+    }
+
+    if (cmd.command === "/help") {
+      const helpText = BOT_COMMANDS_INLINE.map((c) => c.command).join(", ");
+      showNotice(`Available commands: ${helpText}`);
+      setInputText("");
+      setShowAiPromptToolbar(false);
+      return;
+    }
+
+    // Commands that need an argument: replace "/x" with "/x " so the user can
+    // continue typing the argument. Send resolves these into a Hymli AI prompt.
+    setInputText(`${cmd.command} `);
+    setShowAiPromptToolbar(true);
   };
 
   // Add Emoji Reaction
@@ -995,10 +1127,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // Voice Readout
   const handleTripleTapSpeech = (text: string) => {
-    if ('speechSynthesis' in window) {
+    if ("speechSynthesis" in window) {
       const utterance = new SpeechSynthesisUtterance(text);
       window.speechSynthesis.speak(utterance);
-      showNotice('🔊 Reading Message Aloud');
+      showNotice("🔊 Reading Message Aloud");
     }
   };
 
@@ -1022,42 +1154,212 @@ export const ChatView: React.FC<ChatViewProps> = ({
     showNotice(`Deleted ${selectedMsgIds.length} Messages`);
   };
 
+  // ---------------------------------------------------------------------------
+  // BEACON (Instagram-style story ring) handlers
+  // ---------------------------------------------------------------------------
+  // Load anchored beacon for this conversation from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(`anchored_beacon_${activeConv.id}`);
+      if (stored) {
+        setAnchoredBeaconId(stored);
+      }
+    } catch (e) {
+      console.warn("[ChatView] Failed to load anchored beacon:", e);
+    }
+  }, [activeConv.id]);
+
+  // Sync the anchored beacon id to localStorage
+  useEffect(() => {
+    try {
+      if (anchoredBeaconId) {
+        localStorage.setItem(
+          `anchored_beacon_${activeConv.id}`,
+          anchoredBeaconId,
+        );
+      } else {
+        localStorage.removeItem(`anchored_beacon_${activeConv.id}`);
+      }
+    } catch (e) {
+      console.warn("[ChatView] Failed to persist anchored beacon:", e);
+    }
+  }, [anchoredBeaconId, activeConv.id]);
+
+  const handleCreateBeacon = (newBeacon: Beacon) => {
+    setBeacons((prev) => [...prev, newBeacon]);
+    // Anchor the newly created beacon to this conversation header
+    setAnchoredBeaconId(newBeacon.id);
+    showNotice("🌟 Beacon Cast into Harbor & Anchored to Header");
+  };
+
+  const handleAddBeaconComment = (beaconId: string, comment: BeaconComment) => {
+    setBeacons((prev) =>
+      prev.map((b) =>
+        b.id === beaconId
+          ? { ...b, comments: [...(b.comments || []), comment] }
+          : b,
+      ),
+    );
+  };
+
+  const handleDeleteBeacon = (beaconId: string) => {
+    setBeacons((prev) => prev.filter((b) => b.id !== beaconId));
+    if (anchoredBeaconId === beaconId) {
+      setAnchoredBeaconId(null);
+    }
+    showNotice("Beacon Submerged & Deleted");
+  };
+
+  const handleEditBeacon = (updatedBeacon: Beacon) => {
+    setBeacons((prev) =>
+      prev.map((b) => (b.id === updatedBeacon.id ? updatedBeacon : b)),
+    );
+  };
+
+  const handleViewBeacon = (beaconId: string) => {
+    setBeacons((prev) =>
+      prev.map((b) =>
+        b.id === beaconId
+          ? {
+              ...b,
+              viewed_by: b.viewed_by?.includes(currentUser.id)
+                ? b.viewed_by
+                : [...(b.viewed_by || []), currentUser.id],
+            }
+          : b,
+      ),
+    );
+  };
+
+  const anchoredBeacon = beacons.find((b) => b.id === anchoredBeaconId) || null;
+
+  const openBeaconViewerAt = (index: number) => {
+    setActiveBeaconIndex(index);
+    setIsBeaconViewerOpen(true);
+  };
+
   // Wallpaper Styles
   const getWallpaperStyle = () => {
     switch (moodWallpaper) {
-      case 'nautical':
-        return 'bg-gradient-to-b from-slate-950 via-cyan-950/40 to-slate-950';
-      case 'midnight':
-        return 'bg-gradient-to-b from-slate-950 via-indigo-950/40 to-slate-950';
-      case 'cyberpunk':
-        return 'bg-gradient-to-b from-slate-950 via-purple-950/40 to-slate-950';
+      case "nautical":
+        return "bg-gradient-to-b from-slate-950 via-cyan-950/40 to-slate-950";
+      case "midnight":
+        return "bg-gradient-to-b from-slate-950 via-indigo-950/40 to-slate-950";
+      case "cyberpunk":
+        return "bg-gradient-to-b from-slate-950 via-purple-950/40 to-slate-950";
       default:
-        return 'bg-slate-950/60';
+        return "bg-slate-950/60";
     }
   };
 
   return (
-    <div className={`flex-1 flex flex-col h-full ${getWallpaperStyle()} relative overflow-hidden select-none`}>
+    <div
+      className={`flex-1 flex flex-col h-full ${getWallpaperStyle()} relative overflow-hidden select-none`}
+    >
       {/* WebRTC Call Overlay */}
-      {(webrtc.callState !== 'idle' || webrtc.incomingCall) && (
+      {(webrtc.callState !== "idle" || webrtc.incomingCall) && (
         <CallOverlay
-          activeCall={webrtc.callState !== 'idle' ? { user: webrtc.targetUser || activeConv.user, type: webrtc.callType } : null}
-          callDuration={webrtc.callDuration}
-          isMuted={webrtc.isMuted}
-          isVideoOff={webrtc.isCameraOff}
+          currentUser={currentUser}
+          callState={webrtc.callState}
+          callType={webrtc.callType}
+          targetUser={webrtc.targetUser}
+          incomingCall={webrtc.incomingCall}
           localStream={webrtc.localStream}
           remoteStream={webrtc.remoteStream}
+          isMuted={webrtc.isMuted}
+          isCameraOff={webrtc.isCameraOff}
+          callDuration={webrtc.callDuration}
+          onAccept={webrtc.acceptCall}
+          onDecline={webrtc.declineCall}
           onEndCall={webrtc.endCall}
           onToggleMute={webrtc.toggleMute}
-          onToggleVideo={webrtc.toggleCamera}
+          onToggleCamera={webrtc.toggleCamera}
         />
       )}
+
+      {/* BEACON Creation + Viewing Modals */}
+      <BeaconModal
+        isOpen={isBeaconModalOpen}
+        onClose={() => setIsBeaconModalOpen(false)}
+        currentUser={currentUser}
+        onCreateBeacon={handleCreateBeacon}
+      />
+
+      <BeaconViewer
+        beacons={beacons}
+        initialIndex={activeBeaconIndex}
+        isOpen={isBeaconViewerOpen}
+        onClose={() => setIsBeaconViewerOpen(false)}
+        currentUser={currentUser}
+        onAddComment={handleAddBeaconComment}
+        onViewBeacon={handleViewBeacon}
+        onDeleteBeacon={handleDeleteBeacon}
+        onEditBeacon={handleEditBeacon}
+      />
+
+      {/* FULL-BLEED IMAGE LIGHTBOX */}
+      <AnimatePresence>
+        {lightboxImage && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[60] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4"
+            onClick={() => setLightboxImage(null)}
+          >
+            <button
+              onClick={() => setLightboxImage(null)}
+              className="absolute top-4 right-4 p-2.5 rounded-full bg-slate-800/80 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
+              title="Close"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <motion.img
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              src={lightboxImage.src}
+              alt="Full-screen attachment"
+              className="max-w-full max-h-[80vh] rounded-2xl object-contain shadow-2xl select-none"
+              onClick={(e) => e.stopPropagation()}
+            />
+
+            {lightboxImage.caption &&
+              lightboxImage.caption !== "Sent encrypted media stream" && (
+                <div
+                  className="max-w-2xl w-full mt-4 px-4 py-3 rounded-2xl bg-slate-900/80 border border-slate-700 text-sm text-slate-200 text-center"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {lightboxImage.caption}
+                </div>
+              )}
+
+            <div
+              className="mt-4 px-3 py-1.5 rounded-full bg-slate-900/80 border border-slate-700 text-[10px] text-cyan-300 font-mono flex items-center gap-1.5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Lock className="w-3 h-3 text-cyan-400" />
+              E2EE Encrypted Stream
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Attachment Modals */}
       <AttachmentModals
         type={activeAttachmentModal}
         onClose={() => setActiveAttachmentModal(null)}
         onDispatch={handleDispatchAttachment}
+      />
+
+      {/* ATTACHMENT & MEDIA PICKER HUB (10 rich features) */}
+      <AttachmentHub
+        isOpen={isAttachmentHubOpen}
+        onClose={() => setIsAttachmentHubOpen(false)}
+        onSend={handleAttachmentHubSend}
+        currentUser={currentUser}
+        contactName={activeConv.user.name}
       />
 
       {/* Room Controls Modals */}
@@ -1078,7 +1380,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
         isVip={isVipPriority}
         onToggleVip={() => {
           setIsVipPriority(!isVipPriority);
-          showNotice(isVipPriority ? 'VIP Priority Removed' : 'VIP Gold Priority Enabled');
+          showNotice(
+            isVipPriority
+              ? "VIP Priority Removed"
+              : "VIP Gold Priority Enabled",
+          );
         }}
         languageOverride={languageOverride}
         onChangeLanguage={(lang) => setLanguageOverride(lang)}
@@ -1089,14 +1395,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
       <UpgradeModal
         isOpen={isUpgradeModalOpen}
         onClose={() => setIsUpgradeModalOpen(false)}
-        userEmail={currentUser.username ? `${currentUser.username}@hymli.com` : 'user@hymli.com'}
+        userEmail={
+          currentUser.username
+            ? `${currentUser.username}@hymli.com`
+            : "user@hymli.com"
+        }
         userId={currentUser.id}
         selectedModelId={upgradeTargetModelId}
         onSuccessUnlock={(unlockedModelId) => {
           setSelectedModelId(unlockedModelId);
           hymliAiService.setModel(unlockedModelId);
-          const modelObj = AVAILABLE_MODELS.find((m) => m.id === unlockedModelId);
-          showNotice(`Model Unlocked & Switched to ${modelObj?.name || unlockedModelId}`);
+          const modelObj = AVAILABLE_MODELS.find(
+            (m) => m.id === unlockedModelId,
+          );
+          showNotice(
+            `Model Unlocked & Switched to ${modelObj?.name || unlockedModelId}`,
+          );
         }}
       />
 
@@ -1117,17 +1431,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 hymliAiService.askHymli(
                   `[Canvas Sketch Submission]: ${prompt}`,
                   currentUser.id,
-                  activeConv.id
+                  activeConv.id,
                 );
               }}
               onSaveCanvas={() => {
-                showNotice('Canvas exported as PNG');
+                showNotice("Canvas exported as PNG");
               }}
             />
           </div>
         </div>
       )}
-
 
       {/* Security Watermark Overlay */}
       {isWatermarkActive && (
@@ -1137,7 +1450,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
               key={i}
               className="text-[11px] font-mono text-cyan-300 font-extrabold uppercase tracking-widest rotate-[-25deg]"
             >
-              CONFIDENTIAL • {currentUser.full_name.toUpperCase()} • E2EE WATERMARK
+              CONFIDENTIAL • {currentUser.full_name.toUpperCase()} • E2EE
+              WATERMARK
             </div>
           ))}
         </div>
@@ -1171,7 +1485,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
         <div className="p-3 bg-cyan-950 border-b border-cyan-500/40 text-cyan-200 flex items-center justify-between text-xs z-30 shrink-0">
           <div className="flex items-center gap-2">
             <CheckSquare className="w-4 h-4 text-cyan-400" />
-            <span className="font-bold">{selectedMsgIds.length} Messages Selected</span>
+            <span className="font-bold">
+              {selectedMsgIds.length} Messages Selected
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -1196,474 +1512,106 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
       {/* 1. CHAT HEADER */}
       {!focusMode && (
-        <div className="p-3 px-4 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-xl flex flex-col gap-2 z-20 shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              {onBack && (
-                <button
-                  onClick={onBack}
-                  className="md:hidden p-2 rounded-xl text-slate-400 hover:bg-slate-800 transition-colors"
-                >
-                  <ArrowLeft className="w-5 h-5" />
-                </button>
-              )}
-
-              {/* User Avatar - Clicking opens MENU 4 User Profile Card */}
-              <div
-                onClick={() => setIsUserProfileModalOpen(true)}
-                className="relative cursor-pointer group"
-                title="View User Profile Card"
-              >
-                <img
-                  src={activeConv.user.avatar}
-                  alt={activeConv.user.name}
-                  className={`w-10 h-10 rounded-full object-cover border-2 transition-all ${
-                    isVipPriority
-                      ? 'border-amber-400 ring-2 ring-amber-400/50 scale-105'
-                      : 'border-white/20 group-hover:border-cyan-400'
-                  }`}
-                />
-                <span
-                  className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0b101b] ${
-                    targetUserOnline ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
-                  }`}
-                />
-              </div>
-
-              {/* Name & Dynamic Nautical Presence */}
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <h3
-                    onClick={() => setIsUserProfileModalOpen(true)}
-                    className="font-bold text-sm sm:text-base text-slate-100 hover:text-cyan-300 cursor-pointer transition-colors"
-                  >
-                    {activeConv.user.name}
-                  </h3>
-                  {isVipPriority && (
-                    <span className="px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/40">
-                      VIP
-                    </span>
-                  )}
-
-                  {/* Model Selector Header Dropdown */}
-                  <div className="relative z-30">
-                    <button
-                      onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
-                      className="px-2.5 py-0.5 rounded-lg bg-slate-800/90 hover:bg-slate-800 border border-cyan-500/30 text-[11px] text-cyan-300 font-semibold flex items-center gap-1.5 hover:border-cyan-400 transition cursor-pointer shadow-sm"
-                      title="Select Active AI Model & Fleet Tier"
-                    >
-                      <Sparkles className="w-3 h-3 text-cyan-400 fill-cyan-400/30 shrink-0" />
-                      <span className="truncate max-w-[120px] sm:max-w-[170px]">
-                        {AVAILABLE_MODELS.find((m) => m.id === selectedModelId)?.name || 'Hymli AI Core'}
-                      </span>
-                      <ChevronDown
-                        className={`w-3 h-3 text-cyan-400 transition-transform duration-200 ${
-                          isModelDropdownOpen ? 'rotate-180' : ''
-                        }`}
-                      />
-                    </button>
-
-                    {isModelDropdownOpen && (
-                      <div className="absolute top-full left-0 mt-1.5 w-72 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl p-2 z-50 animate-in fade-in zoom-in-95 duration-150 backdrop-blur-xl">
-                        <div className="px-3 py-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-800 mb-1 flex items-center justify-between">
-                          <span>Active Fleet AI Model</span>
-                          <span className="text-cyan-400 font-mono">M-Pesa Tier</span>
-                        </div>
-                        <div className="space-y-1">
-                          {AVAILABLE_MODELS.map((model) => {
-                            const isActive = selectedModelId === model.id;
-                            return (
-                              <button
-                                key={model.id}
-                                onClick={() => handleSelectModel(model)}
-                                className={`w-full text-left px-3 py-2 rounded-xl transition flex items-center justify-between gap-2 cursor-pointer ${
-                                  isActive
-                                    ? 'bg-cyan-500/20 border border-cyan-500/40 text-cyan-200 font-bold'
-                                    : 'hover:bg-slate-800/80 text-slate-200'
-                                }`}
-                              >
-                                <div className="flex flex-col gap-0.5">
-                                  <div className="text-xs font-semibold flex items-center gap-1.5">
-                                    <span>{model.name}</span>
-                                    {isActive && <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400 shrink-0" />}
-                                  </div>
-                                  <div className="text-[10px] text-slate-400">
-                                    {model.isFree ? '100% Free • Unlimited' : `${model.priceLabel} • High Reasoning`}
-                                  </div>
-                                </div>
-                                <div className="shrink-0">
-                                  {model.isFree ? (
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                                      FREE
-                                    </span>
-                                  ) : (
-                                    <span className="px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                                      <Lock className="w-2.5 h-2.5" /> {model.priceLabel}
-                                    </span>
-                                  )}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  {targetUserOnline ? (
-                    <div className="flex items-center gap-1.5 text-xs text-emerald-400 font-medium mt-0.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                      <span className="font-semibold">🟢 Anchored</span>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-1.5 text-xs text-slate-400 font-medium mt-0.5">
-                      <span>{formatNauticalPresence(false, targetLastSeen)}</span>
-                    </div>
-                  )}
-
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/10 text-cyan-300 border border-cyan-500/20 flex items-center gap-1">
-                    <Activity className="w-3 h-3 text-cyan-400" />
-                    <span>Harmonious 98%</span>
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Header Right Actions */}
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setIsCanvasOpen(true)}
-                className="p-2 rounded-xl text-slate-300 hover:text-cyan-400 hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"
-                title="Interactive Multimodal Canvas (Sketch / Mind Map / Magic Erase)"
-              >
-                <Palette className="w-4 h-4 text-cyan-400" />
-              </button>
-
-              <button
-                onClick={() => webrtc.startCall(activeConv.user, 'audio')}
-                className="p-2 rounded-xl text-slate-300 hover:text-cyan-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Voice Call"
-              >
-                <Phone className="w-4 h-4" />
-              </button>
-
-
-              <button
-                onClick={() => webrtc.startCall(activeConv.user, 'video')}
-                className="p-2 rounded-xl text-slate-300 hover:text-indigo-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Video Call"
-              >
-                <Video className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => setIsSearching(!isSearching)}
-                className="p-2 rounded-xl text-slate-300 hover:text-cyan-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Search Messages"
-              >
-                <Search className="w-4 h-4" />
-              </button>
-
-              {/* MENU 3: Top-Right Room Settings Toggle */}
-              <button
-                onClick={() => setIsRoomMenuOpen(!isRoomMenuOpen)}
-                className="p-2 rounded-xl text-slate-300 hover:text-cyan-400 hover:bg-slate-800 transition-colors cursor-pointer"
-                title="Room Controls & Security"
-              >
-                <MoreVertical className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          {/* Search Bar Dropdown */}
-          <AnimatePresence>
-            {isSearching && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="pt-2 border-t border-slate-800/80 flex items-center gap-2"
-              >
-                <div className="flex-1 relative">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    placeholder="Deep search transcript..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:outline-none text-slate-100"
-                  />
-                </div>
-                <button
-                  onClick={() => {
-                    setIsSearching(false);
-                    setSearchQuery('');
-                  }}
-                  className="p-1.5 text-slate-400 hover:text-white"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Pinned Message Bar */}
-          {pinnedMessage && (
-            <div className="flex items-center justify-between p-2 px-3 rounded-xl bg-cyan-950/60 border border-cyan-500/30 text-xs">
-              <div className="flex items-center gap-2 truncate">
-                <Pin className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                <span className="font-bold text-cyan-300 shrink-0">Pinned:</span>
-                <span className="text-slate-200 truncate">{pinnedMessage.text}</span>
-              </div>
-              <button
-                onClick={() => setPinnedMessage(null)}
-                className="text-slate-400 hover:text-white shrink-0 ml-2"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-        </div>
+        <ChatHeader
+          activeConv={activeConv}
+          isVipPriority={isVipPriority}
+          targetUserOnline={targetUserOnline}
+          targetLastSeen={targetLastSeen}
+          livePresence={livePresence}
+          selectedModelId={selectedModelId}
+          isModelDropdownOpen={isModelDropdownOpen}
+          onToggleModelDropdown={() =>
+            setIsModelDropdownOpen(!isModelDropdownOpen)
+          }
+          onSelectModel={handleSelectModel}
+          onOpenProfile={() => setIsUserProfileModalOpen(true)}
+          onToggleSearch={() => setIsSearching(!isSearching)}
+          onToggleRoomMenu={() => {
+            // The header ⋮ button now opens the WhatsApp-style Chat Info Drawer.
+            setIsRoomMenuOpen(false);
+            setIsChatInfoOpen(true);
+          }}
+          onOpenCanvas={() => setIsCanvasOpen(true)}
+          onStartCall={(kind) => webrtc.startCall(targetProfile, kind)}
+          onBack={onBack}
+          isSearching={isSearching}
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          onCloseSearch={() => {
+            setIsSearching(false);
+            setSearchQuery("");
+          }}
+          pinnedMessage={pinnedMessage}
+          onUnpin={() => setPinnedMessage(null)}
+          anchoredBeacon={anchoredBeacon}
+          onOpenBeaconViewer={() => {
+            const idx = beacons.findIndex((b) => b.id === anchoredBeaconId);
+            openBeaconViewerAt(idx >= 0 ? idx : 0);
+          }}
+        />
       )}
 
       {/* MENU 3: SLIDE-OUT ROOM CONTROLS SIDEBAR */}
-      <AnimatePresence>
-        {isRoomMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, x: '100%' }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: '100%' }}
-            className="absolute top-0 right-0 bottom-0 w-80 bg-slate-900 border-l border-slate-800 shadow-2xl z-40 p-4 flex flex-col gap-4 text-xs overflow-y-auto"
-          >
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <Shield className="w-4 h-4 text-cyan-400" />
-                <h3 className="font-bold text-sm text-white">Room Controls & Security</h3>
-              </div>
-              <button
-                onClick={() => setIsRoomMenuOpen(false)}
-                className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Menu 3 Category Tabs */}
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-              <button
-                onClick={() => setActiveRoomMenuTab('security')}
-                className={`px-2 py-1 rounded-lg font-bold ${
-                  activeRoomMenuTab === 'security' ? 'bg-cyan-500/20 text-cyan-300' : 'text-slate-400'
-                }`}
-              >
-                Security
-              </button>
-              <button
-                onClick={() => setActiveRoomMenuTab('efficiency')}
-                className={`px-2 py-1 rounded-lg font-bold ${
-                  activeRoomMenuTab === 'efficiency' ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-400'
-                }`}
-              >
-                Efficiency
-              </button>
-              <button
-                onClick={() => setActiveRoomMenuTab('visual')}
-                className={`px-2 py-1 rounded-lg font-bold ${
-                  activeRoomMenuTab === 'visual' ? 'bg-emerald-500/20 text-emerald-300' : 'text-slate-400'
-                }`}
-              >
-                Visual
-              </button>
-              <button
-                onClick={() => setActiveRoomMenuTab('automations')}
-                className={`px-2 py-1 rounded-lg font-bold ${
-                  activeRoomMenuTab === 'automations' ? 'bg-purple-500/20 text-purple-300' : 'text-slate-400'
-                }`}
-              >
-                Auto
-              </button>
-            </div>
-
-            {/* SECURITY CONTROLS */}
-            {activeRoomMenuTab === 'security' && (
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    setIsRoomLocked(!isRoomLocked);
-                    showNotice(isRoomLocked ? 'Room Unlocked' : 'Room Lockdown Engaged');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-slate-200 hover:border-cyan-500/50"
-                >
-                  <div className="flex items-center gap-2">
-                    <Lock className="w-4 h-4 text-rose-400" />
-                    <span>Room Lockdown State</span>
-                  </div>
-                  <span className={`font-bold ${isRoomLocked ? 'text-rose-400' : 'text-slate-500'}`}>
-                    {isRoomLocked ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsWatermarkActive(!isWatermarkActive);
-                    showNotice(isWatermarkActive ? 'Watermark Disabled' : 'Watermark Leak Shield Active');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-slate-200 hover:border-cyan-500/50"
-                >
-                  <div className="flex items-center gap-2">
-                    <Shield className="w-4 h-4 text-cyan-400" />
-                    <span>Watermark Leak Shield</span>
-                  </div>
-                  <span className={`font-bold ${isWatermarkActive ? 'text-cyan-400' : 'text-slate-500'}`}>
-                    {isWatermarkActive ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsRoomMenuOpen(false);
-                    setActiveRoomModal('barcode');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 text-slate-200 hover:border-cyan-500/50"
-                >
-                  <QrCode className="w-4 h-4 text-emerald-400" />
-                  <span>Cryptographic Security Barcode</span>
-                </button>
-
-                <button
-                  onClick={handleClearHistory}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 text-rose-300 hover:border-rose-500/50"
-                >
-                  <Trash2 className="w-4 h-4 text-rose-400" />
-                  <span>Clear Chat Canvas</span>
-                </button>
-              </div>
-            )}
-
-            {/* EFFICIENCY CONTROLS */}
-            {activeRoomMenuTab === 'efficiency' && (
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    setIsRoomMenuOpen(false);
-                    setActiveRoomModal('transcript');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 text-slate-200 hover:border-indigo-500/50"
-                >
-                  <Download className="w-4 h-4 text-indigo-400" />
-                  <span>Export PDF Transcript</span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsRoomMenuOpen(false);
-                    setActiveRoomModal('assets');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 text-slate-200 hover:border-indigo-500/50"
-                >
-                  <FolderPlus className="w-4 h-4 text-amber-400" />
-                  <span>Shared Asset Vault</span>
-                </button>
-
-                <button
-                  onClick={handleGenerateAiSummary}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 text-slate-200 hover:border-indigo-500/50"
-                >
-                  <Sparkles className="w-4 h-4 text-cyan-400" />
-                  <span>Ollama AI Milestone Summary</span>
-                </button>
-              </div>
-            )}
-
-            {/* VISUAL CONTROLS */}
-            {activeRoomMenuTab === 'visual' && (
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    setFocusMode(!focusMode);
-                    showNotice(focusMode ? 'Focus Mode Disabled' : 'Focus Mode Enabled');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-slate-200"
-                >
-                  <div className="flex items-center gap-2">
-                    <Zap className="w-4 h-4 text-amber-400" />
-                    <span>Focus Canvas Mode</span>
-                  </div>
-                  <span className={`font-bold ${focusMode ? 'text-amber-400' : 'text-slate-500'}`}>
-                    {focusMode ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setPresentationFont(!presentationFont);
-                    showNotice(presentationFont ? 'Sans Font Active' : 'Serif Font Active');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-slate-200"
-                >
-                  <div className="flex items-center gap-2">
-                    <Type className="w-4 h-4 text-cyan-400" />
-                    <span>Presentation Serif Typography</span>
-                  </div>
-                  <span className={`font-bold ${presentationFont ? 'text-cyan-400' : 'text-slate-500'}`}>
-                    {presentationFont ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    const wallpapers: ('default' | 'nautical' | 'midnight' | 'cyberpunk')[] = ['default', 'nautical', 'midnight', 'cyberpunk'];
-                    const nextWP = wallpapers[(wallpapers.indexOf(moodWallpaper) + 1) % wallpapers.length];
-                    setMoodWallpaper(nextWP);
-                    showNotice(`Wallpaper: ${nextWP.toUpperCase()}`);
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-slate-200"
-                >
-                  <div className="flex items-center gap-2">
-                    <Palette className="w-4 h-4 text-purple-400" />
-                    <span>Mood Wallpaper Theme</span>
-                  </div>
-                  <span className="font-bold text-purple-300 uppercase">{moodWallpaper}</span>
-                </button>
-              </div>
-            )}
-
-            {/* AUTOMATIONS */}
-            {activeRoomMenuTab === 'automations' && (
-              <div className="space-y-2">
-                <button
-                  onClick={() => {
-                    setAutoReplyBot(!autoReplyBot);
-                    showNotice(autoReplyBot ? 'Auto-Reply Disabled' : 'Auto-Reply Bot Active');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-between text-slate-200"
-                >
-                  <div className="flex items-center gap-2">
-                    <Bot className="w-4 h-4 text-indigo-400" />
-                    <span>Auto-Reply Bot</span>
-                  </div>
-                  <span className={`font-bold ${autoReplyBot ? 'text-indigo-400' : 'text-slate-500'}`}>
-                    {autoReplyBot ? 'ON' : 'OFF'}
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setIsRoomMenuOpen(false);
-                    setActiveRoomModal('crm');
-                  }}
-                  className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 text-slate-200 hover:border-purple-500/50"
-                >
-                  <Briefcase className="w-4 h-4 text-emerald-400" />
-                  <span>CRM Deal Status Pipeline</span>
-                </button>
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <RoomSettingsSidebar
+        isOpen={isRoomMenuOpen}
+        onClose={() => setIsRoomMenuOpen(false)}
+        activeTab={activeRoomMenuTab}
+        onTabChange={(tab) => setActiveRoomMenuTab(tab)}
+        isLocked={isRoomLocked}
+        onToggleLock={() => {
+          setIsRoomLocked(!isRoomLocked);
+          showNotice(isRoomLocked ? "Room Unlocked" : "Room Lockdown Engaged");
+        }}
+        isWatermarkActive={isWatermarkActive}
+        onToggleWatermark={() => {
+          setIsWatermarkActive(!isWatermarkActive);
+          showNotice(
+            isWatermarkActive
+              ? "Watermark Disabled"
+              : "Watermark Leak Shield Active",
+          );
+        }}
+        onOpenModal={(modal) => {
+          setIsRoomMenuOpen(false);
+          setActiveRoomModal(modal);
+        }}
+        onClearHistory={handleClearHistory}
+        onGenerateSummary={handleGenerateAiSummary}
+        focusMode={focusMode}
+        onToggleFocusMode={() => {
+          setFocusMode(!focusMode);
+          showNotice(focusMode ? "Focus Mode Disabled" : "Focus Mode Enabled");
+        }}
+        presentationFont={presentationFont}
+        onTogglePresentationFont={() => {
+          setPresentationFont(!presentationFont);
+          showNotice(
+            presentationFont ? "Sans Font Active" : "Serif Font Active",
+          );
+        }}
+        moodWallpaper={moodWallpaper}
+        onChangeWallpaper={() => {
+          const wallpapers: WallpaperTheme[] = [
+            "default",
+            "nautical",
+            "midnight",
+            "cyberpunk",
+          ];
+          const nextWP =
+            wallpapers[
+              (wallpapers.indexOf(moodWallpaper) + 1) % wallpapers.length
+            ];
+          setMoodWallpaper(nextWP);
+          showNotice(`Wallpaper: ${nextWP.toUpperCase()}`);
+        }}
+        autoReplyBot={autoReplyBot}
+        onToggleAutoReply={() => {
+          setAutoReplyBot(!autoReplyBot);
+          showNotice(
+            autoReplyBot ? "Auto-Reply Disabled" : "Auto-Reply Bot Active",
+          );
+        }}
+      />
 
       {/* AI SUMMARIZER MODAL */}
       <AnimatePresence>
@@ -1687,13 +1635,17 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   <Sparkles className="w-6 h-6" />
                 </div>
                 <div>
-                  <h3 className="font-bold text-lg text-white">Ollama AI Executive Summary</h3>
-                  <p className="text-xs text-slate-400">Synthesized key points from transcript</p>
+                  <h3 className="font-bold text-lg text-white">
+                    Ollama AI Executive Summary
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Synthesized key points from transcript
+                  </p>
                 </div>
               </div>
 
               <div className="p-4 bg-slate-950 rounded-2xl border border-slate-800 font-mono text-xs text-slate-200 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-                {aiSummary || 'Synthesizing...'}
+                {aiSummary || "Synthesizing..."}
               </div>
 
               <button
@@ -1718,7 +1670,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       <div
         ref={chatScrollRef}
         onScroll={handleScroll}
-        className={`flex-1 p-4 overflow-y-auto ${compactRows ? 'space-y-2' : 'space-y-4'} relative pb-28`}
+        className={`flex-1 p-4 overflow-y-auto ${compactRows ? "space-y-2" : "space-y-4"} relative pb-28`}
       >
         <div className="text-center my-2">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold tracking-wider bg-slate-900/90 border border-slate-800 text-cyan-400">
@@ -1728,12 +1680,20 @@ export const ChatView: React.FC<ChatViewProps> = ({
         </div>
 
         {messages.map((msg, index) => {
+          // Robust ownership check: prefer the stored `is_me` flag, but fall
+          // back to comparing sender_id against the current user so AI/bot
+          // messages (sender_id = bot ID) reliably render on the left.
+          const isMe = msg.is_me ?? msg.sender_id === currentUser.id;
           const msgDateLabel = getMessageDateLabel(msg.created_at);
-          const prevMsgDateLabel = index > 0 ? getMessageDateLabel(messages[index - 1].created_at) : null;
+          const prevMsgDateLabel =
+            index > 0
+              ? getMessageDateLabel(messages[index - 1].created_at)
+              : null;
           const showDateDivider = msgDateLabel !== prevMsgDateLabel;
           const isHighlighted = highlightedMsgId === msg.id;
           const isMenuOpen = activeMsgMenuId === msg.id;
-          const isPasscodeLocked = lockedMsgIds.includes(msg.id) && !unlockedMsgIds.includes(msg.id);
+          const isPasscodeLocked =
+            lockedMsgIds.includes(msg.id) && !unlockedMsgIds.includes(msg.id);
           const isBlurred = blurredMsgIds.includes(msg.id);
           const reactions = msgReactions[msg.id] || [];
 
@@ -1741,7 +1701,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
             <React.Fragment key={msg.id}>
               {/* Date Divider */}
               {showDateDivider && (
-                <div data-date-label={msgDateLabel} className="flex justify-center my-3">
+                <div
+                  data-date-label={msgDateLabel}
+                  className="flex justify-center my-3"
+                >
                   <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-slate-900/80 border border-slate-800 text-slate-400 uppercase tracking-wider">
                     {msgDateLabel}
                   </span>
@@ -1752,8 +1715,10 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 id={`msg-${msg.id}`}
                 ref={(node) => observeMessageRef(node, msg)}
                 onDoubleClick={() => handleDoubleTap(msg.id)}
-                className={`flex flex-col ${msg.is_me ? 'items-end' : 'items-start'} group transition-all duration-300 relative ${
-                  isHighlighted ? 'scale-105 ring-2 ring-cyan-400 rounded-2xl p-1' : ''
+                className={`flex flex-col ${isMe ? "items-end" : "items-start"} group transition-all duration-300 relative ${
+                  isHighlighted
+                    ? "scale-105 ring-2 ring-cyan-400 rounded-2xl p-1"
+                    : ""
                 }`}
               >
                 {/* Multi Select Checkbox */}
@@ -1772,20 +1737,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                 {msg.reply_preview && (
                   <div
                     className={`text-[11px] p-2 rounded-t-xl mb-1 max-w-[80%] border-l-2 ${
-                      msg.is_me
-                        ? 'bg-indigo-950/60 border-cyan-400 text-indigo-200'
-                        : 'bg-slate-800/80 border-indigo-400 text-slate-300'
+                      isMe
+                        ? "bg-indigo-950/60 border-cyan-400 text-indigo-200"
+                        : "bg-slate-800/80 border-indigo-400 text-slate-300"
                     }`}
                   >
-                    <span className="font-bold text-cyan-300">{msg.reply_preview.sender_name}: </span>
+                    <span className="font-bold text-cyan-300">
+                      {msg.reply_preview.sender_name}:{" "}
+                    </span>
                     <span className="truncate">{msg.reply_preview.text}</span>
                   </div>
                 )}
 
                 {/* Message Bubble Container */}
-                {msg.type === 'call_log' ? (
+                {msg.type === "call_log" ? (
                   <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl bg-slate-900/80 border border-slate-800 text-xs font-mono">
-                    {msg.call_info?.status === 'missed' ? (
+                    {msg.call_info?.status === "missed" ? (
                       <div className="p-1.5 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/30">
                         <PhoneMissed className="w-4 h-4" />
                       </div>
@@ -1797,15 +1764,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <div>
                       <p className="font-semibold text-slate-200">{msg.text}</p>
                       <p className="text-[10px] text-slate-500">
-                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {new Date(msg.created_at).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
                       </p>
                     </div>
                   </div>
                 ) : (
                   <div className="relative flex items-center gap-1 max-w-[85%] sm:max-w-md">
-                    {/* MENU 2: Message Contextual Menu Button */}
+                    {/* MENU 2: Message Contextual Menu Button — opens the new MessageActionSheet */}
                     <button
-                      onClick={() => setActiveMsgMenuId(isMenuOpen ? null : msg.id)}
+                      onClick={() =>
+                        isMenuOpen
+                          ? setActiveMsgMenuId(null)
+                          : openMessageActionSheet(msg)
+                      }
                       className="opacity-0 group-hover:opacity-100 p-1 rounded-lg bg-slate-800/80 text-slate-400 hover:text-white transition-opacity cursor-pointer shrink-0"
                       title="Message Actions & Insights"
                     >
@@ -1813,13 +1787,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     <div
-                      className={`relative w-full ${compactRows ? 'p-2.5' : 'p-3.5'} rounded-2xl text-sm shadow-xl transition-all ${
-                        presentationFont ? 'font-serif' : ''
+                      className={`relative w-full ${compactRows ? "p-2.5" : "p-3.5"} rounded-2xl text-sm shadow-xl transition-all ${
+                        presentationFont ? "font-serif" : ""
                       } ${
-                        msg.is_me
-                          ? 'bg-gradient-to-r from-indigo-600 via-indigo-700 to-cyan-700 text-white rounded-br-none'
-                          : 'bg-slate-900 text-slate-100 rounded-bl-none border border-slate-800'
-                      } ${isBlurred ? 'filter blur-sm hover:filter-none transition-all' : ''}`}
+                        isMe
+                          ? "bg-gradient-to-r from-indigo-600 via-indigo-700 to-cyan-700 text-white rounded-br-none"
+                          : "bg-slate-900 text-slate-100 rounded-bl-none border border-slate-800"
+                      } ${isBlurred ? "filter blur-sm hover:filter-none transition-all" : ""}`}
                     >
                       {/* Passcode Lock Shroud */}
                       {isPasscodeLocked ? (
@@ -1828,23 +1802,63 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           className="p-4 bg-slate-950/90 rounded-xl border border-amber-500/40 flex flex-col items-center gap-2 cursor-pointer text-center"
                         >
                           <Lock className="w-6 h-6 text-amber-400 animate-bounce" />
-                          <span className="text-xs font-bold text-amber-300">Protected Message Bubble</span>
-                          <span className="text-[10px] text-slate-400">Click to enter passcode (Try 1234)</span>
+                          <span className="text-xs font-bold text-amber-300">
+                            Protected Message Bubble
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Click to enter passcode (Try 1234)
+                          </span>
                         </div>
                       ) : (
                         <>
-                          {/* Image Attachment */}
+                          {/* Full-Bleed Image Attachment (Instagram-style) */}
                           {msg.image_url && (
-                            <div className="relative mb-2 rounded-xl overflow-hidden border border-white/10 group/img">
-                              <img
-                                src={msg.image_url}
-                                alt="Encrypted attachment"
-                                className="w-full max-h-60 object-cover"
-                              />
+                            <div
+                              className={`relative overflow-hidden group/img ${
+                                isMe ? "rounded-br-none" : "rounded-bl-none"
+                              } ${compactRows ? "-m-2.5" : "-m-3.5"} mb-0`}
+                            >
+                              <button
+                                onClick={() =>
+                                  setLightboxImage({
+                                    src: msg.image_url!,
+                                    caption: msg.text,
+                                  })
+                                }
+                                className="block w-full cursor-zoom-in"
+                                title="Open full-screen"
+                              >
+                                <img
+                                  src={msg.image_url}
+                                  alt="Encrypted attachment"
+                                  className="w-full max-h-[420px] object-cover"
+                                />
+                              </button>
+                              {/* Bottom gradient overlay */}
+                              <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/70 to-transparent pointer-events-none" />
                               <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md border border-white/20 text-[10px] text-cyan-300 font-mono flex items-center gap-1 shadow-lg">
                                 <Lock className="w-3 h-3 text-cyan-400" />
                                 <span>Encrypted Stream</span>
                               </div>
+                              <div className="absolute bottom-2 right-2 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md border border-white/20 text-[10px] text-white flex items-center gap-1 shadow-lg">
+                                ⛶ Full-Screen
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Voice Note Bubble (WhatsApp-style waveform player) */}
+                          {msg.type === "voice" && msg.audio_url && (
+                            <div
+                              className={`relative overflow-hidden ${
+                                isMe ? "rounded-br-none" : "rounded-bl-none"
+                              } ${compactRows ? "-m-2.5" : "-m-3.5"} mb-0`}
+                            >
+                              <WaveformPlayer
+                                src={msg.audio_url}
+                                duration={msg.audio_duration}
+                                isMe={isMe}
+                                compact={compactRows}
+                              />
                             </div>
                           )}
 
@@ -1853,7 +1867,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             <div className="space-y-2">
                               <textarea
                                 value={editingMsgText}
-                                onChange={(e) => setEditingMsgText(e.target.value)}
+                                onChange={(e) =>
+                                  setEditingMsgText(e.target.value)
+                                }
                                 className="w-full p-2 bg-slate-950 border border-cyan-400 rounded-lg text-xs text-slate-100 focus:outline-none"
                                 rows={2}
                               />
@@ -1874,15 +1890,22 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             </div>
                           ) : (
                             <div className="space-y-1.5">
-                              {/* Raw Message Text or Polished Text with Code Block Execution */}
-                              {renderMessageTextWithCodeBlocks(msg.metadata?.polishedText || msg.text)}
+                              {/* Raw Message Text or Polished Text with Code Block Execution
+                                  (skip for voice notes — the WaveformPlayer carries the UI) */}
+                              {msg.type !== "voice" &&
+                                renderMessageTextWithCodeBlocks(
+                                  msg.metadata?.polishedText || msg.text,
+                                )}
 
                               {/* Separate Overlay: Translation */}
                               {msg.metadata?.translation && (
                                 <div className="mt-2 p-2 rounded-xl bg-slate-950/80 border border-indigo-500/40 text-xs text-indigo-200 flex flex-col gap-1">
                                   <div className="flex items-center gap-1 text-[10px] font-bold text-indigo-400">
                                     <Globe className="w-3 h-3" />
-                                    <span>{msg.metadata.translatedLang || 'Spanish'} Translation</span>
+                                    <span>
+                                      {msg.metadata.translatedLang || "Spanish"}{" "}
+                                      Translation
+                                    </span>
                                   </div>
                                   <p>{msg.metadata.translation}</p>
                                 </div>
@@ -1921,13 +1944,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
                             )}
 
                             <span className="text-slate-300">
-                              {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(msg.created_at).toLocaleTimeString([], {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })}
                             </span>
 
-                            {msg.is_me && (
+                            {isMe && (
                               <MessageStatus
                                 status={msg.status}
-                                isRead={msg.is_read}
+                                isRead={msg.status === 3}
                               />
                             )}
 
@@ -1952,7 +1978,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           exit={{ opacity: 0, scale: 0.8 }}
                           className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-700 rounded-full p-1.5 flex items-center gap-2 shadow-2xl z-40"
                         >
-                          {['👍', '❤️', '🔥', '👏', '🚀', '😂'].map((emoji) => (
+                          {["👍", "❤️", "🔥", "👏", "🚀", "😂"].map((emoji) => (
                             <button
                               key={emoji}
                               onClick={() => handleAddReaction(msg.id, emoji)}
@@ -1973,39 +1999,47 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           animate={{ opacity: 1, scale: 1 }}
                           exit={{ opacity: 0, scale: 0.95 }}
                           className={`absolute bottom-full mb-2 ${
-                            msg.is_me ? 'right-0' : 'left-0'
+                            isMe ? "right-0" : "left-0"
                           } z-50 w-64 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 space-y-2 text-xs`}
                         >
                           {/* Menu 2 Category Tabs */}
                           <div className="flex items-center justify-between border-b border-slate-800 pb-1.5">
                             <button
-                              onClick={() => setActiveMsgMenuTab('refine')}
+                              onClick={() => setActiveMsgMenuTab("refine")}
                               className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                                activeMsgMenuTab === 'refine' ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400'
+                                activeMsgMenuTab === "refine"
+                                  ? "bg-cyan-500/20 text-cyan-400"
+                                  : "text-slate-400"
                               }`}
                             >
                               Refine
                             </button>
                             <button
-                              onClick={() => setActiveMsgMenuTab('organize')}
+                              onClick={() => setActiveMsgMenuTab("organize")}
                               className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                                activeMsgMenuTab === 'organize' ? 'bg-indigo-500/20 text-indigo-400' : 'text-slate-400'
+                                activeMsgMenuTab === "organize"
+                                  ? "bg-indigo-500/20 text-indigo-400"
+                                  : "text-slate-400"
                               }`}
                             >
                               Organize
                             </button>
                             <button
-                              onClick={() => setActiveMsgMenuTab('insights')}
+                              onClick={() => setActiveMsgMenuTab("insights")}
                               className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                                activeMsgMenuTab === 'insights' ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-400'
+                                activeMsgMenuTab === "insights"
+                                  ? "bg-emerald-500/20 text-emerald-400"
+                                  : "text-slate-400"
                               }`}
                             >
                               Insights
                             </button>
                             <button
-                              onClick={() => setActiveMsgMenuTab('privacy')}
+                              onClick={() => setActiveMsgMenuTab("privacy")}
                               className={`px-2 py-0.5 rounded-lg text-[10px] font-bold ${
-                                activeMsgMenuTab === 'privacy' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-400'
+                                activeMsgMenuTab === "privacy"
+                                  ? "bg-amber-500/20 text-amber-400"
+                                  : "text-slate-400"
                               }`}
                             >
                               Privacy
@@ -2013,9 +2047,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           </div>
 
                           {/* TAB 1: REFINEMENT */}
-                          {activeMsgMenuTab === 'refine' && (
+                          {activeMsgMenuTab === "refine" && (
                             <div className="space-y-1">
-                              {msg.is_me && (
+                              {isMe && (
                                 <button
                                   onClick={() => {
                                     setEditingMsgId(msg.id);
@@ -2043,7 +2077,9 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 <span>Ollama Tone Polisher</span>
                               </button>
                               <button
-                                onClick={() => handleTranslateMsg(msg, 'Spanish')}
+                                onClick={() =>
+                                  handleTranslateMsg(msg, "Spanish")
+                                }
                                 className="w-full flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 text-slate-200 text-left"
                               >
                                 <Globe className="w-3.5 h-3.5 text-indigo-400" />
@@ -2053,20 +2089,24 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           )}
 
                           {/* TAB 2: ORGANIZATION */}
-                          {activeMsgMenuTab === 'organize' && (
+                          {activeMsgMenuTab === "organize" && (
                             <div className="space-y-1">
                               <button
                                 onClick={() => handleTogglePinMsg(msg)}
                                 className="w-full flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 text-slate-200 text-left"
                               >
                                 <Pin className="w-3.5 h-3.5 text-cyan-400" />
-                                <span>{pinnedMessage?.id === msg.id ? 'Unpin' : 'Pin to Top'}</span>
+                                <span>
+                                  {pinnedMessage?.id === msg.id
+                                    ? "Unpin"
+                                    : "Pin to Top"}
+                                </span>
                               </button>
                               <button
                                 onClick={() => {
                                   navigator.clipboard.writeText(msg.text);
                                   setActiveMsgMenuId(null);
-                                  showNotice('Copied Pure Text');
+                                  showNotice("Copied Pure Text");
                                 }}
                                 className="w-full flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 text-slate-200 text-left"
                               >
@@ -2077,7 +2117,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                           )}
 
                           {/* TAB 3: INSIGHTS */}
-                          {activeMsgMenuTab === 'insights' && (
+                          {activeMsgMenuTab === "insights" && (
                             <div className="space-y-1">
                               <button
                                 onClick={() => handleFactCheckMsg(msg)}
@@ -2087,20 +2127,25 @@ export const ChatView: React.FC<ChatViewProps> = ({
                                 <span>Ollama AI Fact-Check</span>
                               </button>
                               <div className="p-1.5 rounded-lg bg-slate-950 text-[10px] text-slate-400 font-mono">
-                                Delivered: {new Date(msg.created_at).toLocaleTimeString()}
+                                Delivered:{" "}
+                                {new Date(msg.created_at).toLocaleTimeString()}
                               </div>
                             </div>
                           )}
 
                           {/* TAB 4: PRIVACY */}
-                          {activeMsgMenuTab === 'privacy' && (
+                          {activeMsgMenuTab === "privacy" && (
                             <div className="space-y-1">
                               <button
                                 onClick={() => handleLockMsg(msg.id)}
                                 className="w-full flex items-center gap-2 p-1.5 rounded-lg hover:bg-slate-800 text-amber-300 text-left"
                               >
                                 <Lock className="w-3.5 h-3.5 text-amber-400" />
-                                <span>{lockedMsgIds.includes(msg.id) ? 'Remove Lock' : 'Passcode Lock'}</span>
+                                <span>
+                                  {lockedMsgIds.includes(msg.id)
+                                    ? "Remove Lock"
+                                    : "Passcode Lock"}
+                                </span>
                               </button>
                             </div>
                           )}
@@ -2114,6 +2159,48 @@ export const ChatView: React.FC<ChatViewProps> = ({
           );
         })}
 
+        {/* REAL-TIME TYPING INDICATOR (remote user typing / "Nevermind" fade) */}
+        <AnimatePresence>
+          {remoteUserTyping && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 8 }}
+              className="flex items-start gap-2 pl-1 pr-16"
+            >
+              <img
+                src={activeConv.user.avatar}
+                alt={activeConv.user.name}
+                className="w-7 h-7 rounded-full object-cover border border-slate-700"
+              />
+              <div className="p-3 rounded-2xl rounded-bl-none bg-slate-900 border border-slate-800 shadow-xl">
+                <div className="flex items-center gap-1.5">
+                  <span className="typing-dot w-2 h-2 rounded-full bg-cyan-400" />
+                  <span className="typing-dot w-2 h-2 rounded-full bg-cyan-400" />
+                  <span className="typing-dot w-2 h-2 rounded-full bg-cyan-400" />
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {!remoteUserTyping && showNevermind && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ opacity: { duration: 0.8 } }}
+              className="flex items-center gap-1.5 pl-1 pr-16 text-xs text-slate-400 italic"
+            >
+              <img
+                src={activeConv.user.avatar}
+                alt={activeConv.user.name}
+                className="w-6 h-6 rounded-full object-cover border border-slate-700"
+              />
+              <span>Nevermind</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -2123,10 +2210,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
         {replyingTo && (
           <div className="flex items-center justify-between p-2 px-3 rounded-xl bg-slate-800 text-xs text-slate-200 border-l-2 border-cyan-400">
             <div className="truncate">
-              <span className="font-bold text-cyan-300">Replying to {replyingTo.is_me ? 'yourself' : activeConv.user.name}: </span>
+              <span className="font-bold text-cyan-300">
+                Replying to{" "}
+                {replyingTo.is_me ? "yourself" : activeConv.user.name}:{" "}
+              </span>
               <span className="truncate opacity-80">{replyingTo.text}</span>
             </div>
-            <button onClick={() => setReplyingTo(null)} className="text-slate-400 hover:text-white ml-2">
+            <button
+              onClick={() => setReplyingTo(null)}
+              className="text-slate-400 hover:text-white ml-2"
+            >
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
@@ -2142,20 +2235,27 @@ export const ChatView: React.FC<ChatViewProps> = ({
               className="p-3 bg-slate-900/95 border border-slate-700/80 rounded-2xl shadow-2xl backdrop-blur-2xl space-y-3"
             >
               <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="text-xs font-bold text-cyan-300">Dispatch Attachment Drawer</span>
+                <span className="text-xs font-bold text-cyan-300">
+                  Dispatch Attachment Drawer
+                </span>
                 <div className="flex items-center gap-1">
-                  {(['docs', 'media', 'legal', 'tools'] as const).map((cat) => (
+                  {(["docs", "media", "legal", "tools"] as const).map((cat) => (
                     <button
                       key={cat}
                       onClick={() => setAttachmentCategory(cat)}
                       className={`px-2 py-0.5 rounded-lg text-[10px] font-bold capitalize ${
-                        attachmentCategory === cat ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' : 'text-slate-400'
+                        attachmentCategory === cat
+                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                          : "text-slate-400"
                       }`}
                     >
                       {cat}
                     </button>
                   ))}
-                  <button onClick={() => setIsAttachmentOpen(false)} className="p-1 text-slate-400 hover:text-white">
+                  <button
+                    onClick={() => setIsAttachmentOpen(false)}
+                    className="p-1 text-slate-400 hover:text-white"
+                  >
                     <X className="w-4 h-4" />
                   </button>
                 </div>
@@ -2163,12 +2263,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
               {/* DRAWER BUTTONS */}
               <div className="grid grid-cols-3 sm:grid-cols-5 gap-2 text-[11px]">
-                {attachmentCategory === 'docs' && (
+                {attachmentCategory === "docs" && (
                   <>
                     <button
                       onClick={() => {
                         setIsAttachmentOpen(false);
-                        setActiveAttachmentModal('doc');
+                        setActiveAttachmentModal("doc");
                       }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-cyan-500/50 text-slate-200"
                     >
@@ -2179,7 +2279,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <button
                       onClick={() => {
                         setIsAttachmentOpen(false);
-                        setActiveAttachmentModal('spreadsheet');
+                        setActiveAttachmentModal("spreadsheet");
                       }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-emerald-500/50 text-slate-200"
                     >
@@ -2190,7 +2290,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     <button
                       onClick={() => {
                         setIsAttachmentOpen(false);
-                        setActiveAttachmentModal('expire');
+                        setActiveAttachmentModal("expire");
                       }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-amber-500/50 text-slate-200"
                     >
@@ -2199,7 +2299,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleDispatchAttachment('Cloud Drive Backup', 'Google Drive Shared Key', 'docs')}
+                      onClick={() =>
+                        handleDispatchAttachment(
+                          "Cloud Drive Backup",
+                          "Google Drive Shared Key",
+                          "docs",
+                        )
+                      }
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-indigo-500/50 text-slate-200"
                     >
                       <FolderPlus className="w-5 h-5 text-indigo-400" />
@@ -2207,7 +2313,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleDispatchAttachment('Zip Package', 'Archive_Project_2026.zip', 'docs')}
+                      onClick={() =>
+                        handleDispatchAttachment(
+                          "Zip Package",
+                          "Archive_Project_2026.zip",
+                          "docs",
+                        )
+                      }
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-purple-500/50 text-slate-200"
                     >
                       <Archive className="w-5 h-5 text-purple-400" />
@@ -2216,11 +2328,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </>
                 )}
 
-                {attachmentCategory === 'media' && (
+                {attachmentCategory === "media" && (
                   <>
                     <button
                       onClick={() => {
-                        handleSendMessage('image', 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80');
+                        handleSendMessage(
+                          "image",
+                          "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
+                        );
                         setIsAttachmentOpen(false);
                       }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-cyan-500/50 text-slate-200"
@@ -2230,7 +2345,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleDispatchAttachment('Encrypted Audio Note', 'Duration: 01:24', 'media')}
+                      onClick={() =>
+                        handleDispatchAttachment(
+                          "Encrypted Audio Note",
+                          "Duration: 01:24",
+                          "media",
+                        )
+                      }
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-amber-500/50 text-slate-200"
                     >
                       <Mic className="w-5 h-5 text-amber-400" />
@@ -2238,7 +2359,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleDispatchAttachment('Video Stream', '1080p Nautical Log', 'media')}
+                      onClick={() =>
+                        handleDispatchAttachment(
+                          "Video Stream",
+                          "1080p Nautical Log",
+                          "media",
+                        )
+                      }
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-purple-500/50 text-slate-200"
                     >
                       <Film className="w-5 h-5 text-purple-400" />
@@ -2247,12 +2374,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </>
                 )}
 
-                {attachmentCategory === 'legal' && (
+                {attachmentCategory === "legal" && (
                   <>
                     <button
                       onClick={() => {
                         setIsAttachmentOpen(false);
-                        setActiveAttachmentModal('invoice');
+                        setActiveAttachmentModal("invoice");
                       }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-emerald-500/50 text-slate-200"
                     >
@@ -2261,7 +2388,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleDispatchAttachment('Corporate NDA', 'Sign & Return Lock', 'legal')}
+                      onClick={() =>
+                        handleDispatchAttachment(
+                          "Corporate NDA",
+                          "Sign & Return Lock",
+                          "legal",
+                        )
+                      }
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-indigo-500/50 text-slate-200"
                     >
                       <ShieldCheck className="w-5 h-5 text-indigo-400" />
@@ -2270,12 +2403,12 @@ export const ChatView: React.FC<ChatViewProps> = ({
                   </>
                 )}
 
-                {attachmentCategory === 'tools' && (
+                {attachmentCategory === "tools" && (
                   <>
                     <button
                       onClick={() => {
                         setIsAttachmentOpen(false);
-                        setActiveAttachmentModal('poll');
+                        setActiveAttachmentModal("poll");
                       }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-purple-500/50 text-slate-200"
                     >
@@ -2284,7 +2417,13 @@ export const ChatView: React.FC<ChatViewProps> = ({
                     </button>
 
                     <button
-                      onClick={() => handleDispatchAttachment('Live GPS Pin', 'Lat: 37.7749, Lon: -122.4194', 'tools')}
+                      onClick={() =>
+                        handleDispatchAttachment(
+                          "Live GPS Pin",
+                          "Lat: 37.7749, Lon: -122.4194",
+                          "tools",
+                        )
+                      }
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-rose-500/50 text-slate-200"
                     >
                       <MapPin className="w-5 h-5 text-rose-400" />
@@ -2297,15 +2436,130 @@ export const ChatView: React.FC<ChatViewProps> = ({
           )}
         </AnimatePresence>
 
+        {/* AI COMMAND PALETTE (shown when typing "/") */}
+        {showAiPromptToolbar && (
+          <div className="relative z-30">
+            <CommandPalette
+              query={commandQuery}
+              onSelect={handleCommandSelect}
+              onClose={() => setShowAiPromptToolbar(false)}
+            />
+          </div>
+        )}
+
+        {/* INLINE VOICE NOTE RECORDER PANEL (WhatsApp-style) */}
+        <AnimatePresence>
+          {isVoiceRecorderOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 12 }}
+              className="p-3 bg-slate-900/95 border border-cyan-500/40 rounded-2xl shadow-2xl backdrop-blur-2xl flex items-center gap-3"
+            >
+              {!voiceRecorder.isRecording ? (
+                <>
+                  <button
+                    onClick={async () => {
+                      const ok = await voiceRecorder.startRecording();
+                      if (!ok && voiceRecorder.error) {
+                        showNotice(voiceRecorder.error);
+                      }
+                    }}
+                    disabled={isSendingVoice}
+                    className="shrink-0 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20 hover:scale-105 transition-all disabled:opacity-50 cursor-pointer"
+                  >
+                    <Mic className="w-4 h-4" />
+                    <span>
+                      {isSendingVoice ? "Uploading..." : "Tap to Record"}
+                    </span>
+                  </button>
+                  <span className="text-[11px] text-slate-400">
+                    Record a voice note to send to{" "}
+                    <span className="text-cyan-300 font-bold">
+                      {activeConv.user.name}
+                    </span>
+                  </span>
+                  <button
+                    onClick={() => {
+                      voiceRecorder.cancelRecording();
+                      setIsVoiceRecorderOpen(false);
+                    }}
+                    className="ml-auto p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+                    title="Close recorder"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  {/* Live pulsing red dot + timer */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="relative flex w-3 h-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75" />
+                      <span className="relative inline-flex rounded-full w-3 h-3 bg-rose-500" />
+                    </span>
+                    <span className="text-sm font-mono font-bold text-rose-300 tabular-nums">
+                      {formatClock(voiceRecorder.elapsedSeconds)}
+                    </span>
+                  </div>
+
+                  {/* Mini live waveform visualization */}
+                  <div className="flex-1 flex items-center gap-[3px] h-6 overflow-hidden">
+                    {Array.from({ length: 32 }).map((_, i) => (
+                      <span
+                        key={i}
+                        className="flex-1 rounded-full bg-cyan-400 animate-waveform"
+                        style={{
+                          animationDelay: `${i * 0.06}s`,
+                          height: `${6 + ((i * 37) % 20)}px`,
+                        }}
+                      />
+                    ))}
+                  </div>
+
+                  {/* Cancel */}
+                  <button
+                    onClick={() => {
+                      voiceRecorder.cancelRecording();
+                      setIsVoiceRecorderOpen(false);
+                    }}
+                    className="shrink-0 px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold flex items-center gap-1.5 hover:bg-rose-500/20 hover:text-rose-300 transition-colors cursor-pointer"
+                    title="Cancel recording"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Cancel</span>
+                  </button>
+
+                  {/* Stop & Send */}
+                  <button
+                    onClick={handleSendVoiceNote}
+                    disabled={isSendingVoice}
+                    className="shrink-0 px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 shadow-lg shadow-cyan-500/30 hover:bg-cyan-400 transition-all disabled:opacity-50 cursor-pointer"
+                    title="Stop recording & send"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>{isSendingVoice ? "Uploading..." : "Send"}</span>
+                  </button>
+                </>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* INPUT CONTROL FIELD */}
         <div className="flex items-center gap-2">
-          {/* MENU 1 (+) ATTACHMENT DRAWER TOGGLE */}
+          {/* MENU 1 (+) ATTACHMENT DRAWER TOGGLE — opens the new AttachmentHub */}
           <button
-            onClick={() => setIsAttachmentOpen(!isAttachmentOpen)}
+            onClick={() => {
+              setIsAttachmentOpen(false);
+              setIsAttachmentHubOpen(true);
+            }}
             className={`p-2.5 rounded-2xl transition-all cursor-pointer ${
-              isAttachmentOpen ? 'bg-cyan-500 text-slate-950 rotate-45' : 'bg-slate-800 text-cyan-400 hover:bg-slate-700'
+              isAttachmentHubOpen
+                ? "bg-cyan-500 text-slate-950 rotate-45"
+                : "bg-slate-800 text-cyan-400 hover:bg-slate-700"
             }`}
-            title="Dispatch Attachment Drawer"
+            title="Open Attachment & Media Hub"
           >
             <Plus className="w-5 h-5" />
           </button>
@@ -2319,6 +2573,43 @@ export const ChatView: React.FC<ChatViewProps> = ({
             🎨
           </button>
 
+          {/* BEACON ANCHOR / CAST BUTTON (Instagram-style story ring) */}
+          <div className="relative">
+            <button
+              onClick={() => {
+                // If a beacon is already anchored, one tap re-opens the viewer;
+                // otherwise open the Beacon creation modal.
+                if (anchoredBeacon) {
+                  const idx = beacons.findIndex(
+                    (b) => b.id === anchoredBeaconId,
+                  );
+                  openBeaconViewerAt(idx >= 0 ? idx : 0);
+                } else {
+                  setIsBeaconModalOpen(true);
+                }
+              }}
+              className={`p-2.5 rounded-2xl transition-all cursor-pointer ${
+                anchoredBeacon
+                  ? "bg-gradient-to-tr from-pink-500 via-rose-500 to-cyan-400 text-white shadow-lg shadow-pink-500/30"
+                  : "bg-slate-800 text-pink-400 hover:bg-slate-700"
+              }`}
+              title={
+                anchoredBeacon
+                  ? "Open anchored Beacon"
+                  : "Cast & anchor a Beacon (ephemeral story)"
+              }
+            >
+              <Radio className="w-5 h-5" />
+            </button>
+
+            {/* Anchor Indicator Drop Badge */}
+            {anchoredBeacon && (
+              <span className="absolute -top-1.5 -right-1.5 w-3.5 h-3.5 rounded-full bg-pink-500 border-2 border-[#0b101b] flex items-center justify-center shadow-md">
+                <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              </span>
+            )}
+          </div>
+
           {/* DOCUMENT DEEP-DIVE PDF BUTTON */}
           <button
             onClick={() => pdfInputRef.current?.click()}
@@ -2327,7 +2618,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           >
             <FileText className="w-5 h-5 text-amber-400" />
           </button>
-          <input
+<input
             type="file"
             ref={pdfInputRef}
             accept=".pdf,application/pdf"
@@ -2335,13 +2626,57 @@ export const ChatView: React.FC<ChatViewProps> = ({
             className="hidden"
           />
 
+          {/* HYMLI AI TOOL SUITE BUTTON */}
+          <button
+            onClick={() => setIsHymliToolsOpen(true)}
+            className={`p-2.5 rounded-2xl transition-all cursor-pointer ${
+              isHymliToolsOpen
+                ? "bg-indigo-500 text-white shadow-lg shadow-indigo-500/30"
+                : "bg-slate-800 text-indigo-400 hover:bg-slate-700"
+            }`}
+            title="Open Hymli AI Tool Suite"
+          >
+            <Bot className="w-5 h-5" />
+          </button>
+
           <input
             type="text"
             placeholder="Type encrypted message or / for AI prompts..."
             value={inputText}
             onChange={handleInputChange}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              if (showAiPromptToolbar && e.key === "Escape") {
+                e.preventDefault();
+                setShowAiPromptToolbar(false);
+                return;
+              }
+              if (showAiPromptToolbar && filteredCommands.length > 0) {
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  setActiveCommandIndex(
+                    (prev) => (prev + 1) % filteredCommands.length,
+                  );
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  setActiveCommandIndex(
+                    (prev) =>
+                      (prev - 1 + filteredCommands.length) %
+                      filteredCommands.length,
+                  );
+                  return;
+                }
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  const sel = filteredCommands[activeCommandIndex];
+                  if (sel) {
+                    handleCommandSelect(sel);
+                  }
+                  return;
+                }
+              }
+              if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
                 handleSendMessage();
               }
@@ -2349,7 +2684,29 @@ export const ChatView: React.FC<ChatViewProps> = ({
             className="flex-1 p-2.5 px-4 rounded-2xl bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:outline-none text-sm text-slate-100 placeholder-slate-500"
           />
 
+          {/* VOICE NOTE RECORDER TOGGLE (WhatsApp-style mic button) */}
           <button
+            onClick={() => {
+              // Opening the recorder while already recording would be confusing;
+              // if open, just close it. Otherwise open the inline recorder panel.
+              if (isVoiceRecorderOpen) {
+                voiceRecorder.cancelRecording();
+                setIsVoiceRecorderOpen(false);
+              } else {
+                setIsVoiceRecorderOpen(true);
+              }
+            }}
+            className={`p-2.5 rounded-2xl transition-all cursor-pointer ${
+              isVoiceRecorderOpen
+                ? "bg-rose-500 text-white shadow-lg shadow-rose-500/30 animate-pulse"
+                : "bg-slate-800 text-cyan-400 hover:bg-slate-700"
+            }`}
+            title="Record voice note"
+          >
+            <Mic className="w-5 h-5" />
+          </button>
+
+<button
             onClick={() => handleSendMessage()}
             disabled={!inputText.trim()}
             className="p-2.5 rounded-2xl bg-cyan-500 text-slate-950 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-cyan-400 transition-colors shadow-lg shadow-cyan-500/20 font-bold"
@@ -2358,6 +2715,130 @@ export const ChatView: React.FC<ChatViewProps> = ({
           </button>
         </div>
       </div>
+
+      {/* ADVANCED MESSAGE ACTION SHEET (10 WhatsApp-style actions) */}
+      {actionSheetMessage && (
+        <MessageActionSheet
+          isOpen={Boolean(actionSheetMessage)}
+          onClose={closeMessageActionSheet}
+          message={actionSheetMessage}
+          currentUser={currentUser}
+          targetUser={activeConv.user}
+          isMe={actionSheetMessage.is_me ?? actionSheetMessage.sender_id === currentUser.id}
+          isPinned={actionSheetPinned}
+          draftConversations={activeConv ? [activeConv] : []}
+          availableContacts={[
+            {
+              id: activeConv.user.id,
+              username: activeConv.user.name,
+              full_name: activeConv.user.name,
+              avatar_url: activeConv.user.avatar,
+            },
+          ]}
+          onReply={() => {
+            setReplyingTo(actionSheetMessage);
+            closeMessageActionSheet();
+          }}
+          onForwardSent={(targetUserIds, count) => {
+            chatService
+              .forwardMessages(
+                [actionSheetMessage.id],
+                targetUserIds,
+                currentUser.id,
+              )
+              .then(() => {
+                showNotice(`Forwarded to ${count} chats`);
+              });
+          }}
+          onStarred={(collection) => {
+            chatService
+              .starMessage(actionSheetMessage.id, currentUser.id, collection)
+              .then(() => showNotice(`Saved to ${collection}`));
+          }}
+          onUnstarred={() => {
+            chatService
+              .unstarMessage(actionSheetMessage.id, currentUser.id)
+              .then(() => showNotice("Bookmark removed"));
+          }}
+          onPinned={(duration) => {
+            chatService
+              .pinMessage(actionSheetMessage.id, currentUser.id, duration, true)
+              .then(() => {
+                setPinnedMessage(actionSheetMessage);
+                setActionSheetPinned(true);
+                showNotice(`Pinned for ${duration}`);
+              });
+          }}
+          onUnpinned={() => {
+            chatService
+              .pinMessage(actionSheetMessage.id, currentUser.id, "24 Hours", false)
+              .then(() => {
+                setPinnedMessage(null);
+                setActionSheetPinned(false);
+                showNotice("Message unpinned");
+              });
+          }}
+          onEdited={(newText) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === actionSheetMessage.id
+                  ? { ...m, text: newText, is_edited: true }
+                  : m,
+              ),
+            );
+            showNotice("Message edited");
+          }}
+          onEditHistorySaved={(prevText) => {
+            chatService
+              .saveEditHistory(actionSheetMessage.id, prevText)
+              .then(() => {});
+          }}
+          onReplyPrivately={(targetProfile) => {
+            // Start a 1-on-1 with the selected contact (quote context).
+            showNotice(`Replying privately to ${targetProfile.full_name}`);
+          }}
+        />
+      )}
+
+      {/* WHATSAPP-STYLE CHAT INFO DRAWER (10 features) */}
+      <ChatInfoDrawer
+        isOpen={isChatInfoOpen}
+        onClose={() => setIsChatInfoOpen(false)}
+        contactName={activeConv.user.name}
+        contactAvatar={activeConv.user.avatar}
+        targetUserId={activeConv.user.id}
+        conversationId={activeConv.id}
+        currentUserId={currentUser.id}
+        messages={messages}
+        prefs={chatPrefs}
+        onPrefsChange={handleChatPrefsChange}
+        onNotice={showNotice}
+        onClearHistory={handleClearHistory}
+        onOpenGroupManagement={() => {
+          setIsChatInfoOpen(false);
+          setIsGroupMgmtOpen(true);
+        }}
+      />
+
+{/* GROUP MANAGEMENT MATRIX MODAL */}
+      <GroupManagementModal
+        isOpen={isGroupMgmtOpen}
+        onClose={() => setIsGroupMgmtOpen(false)}
+        groupName={activeConv.user.name}
+        isAdmin={true}
+        onNotice={showNotice}
+      />
+
+      {/* HYMLI AI TOOL SUITE MODAL */}
+      <HymliToolsModal
+        isOpen={isHymliToolsOpen}
+        onClose={() => setIsHymliToolsOpen(false)}
+        currentUser={currentUser}
+        onOpenUpgrade={() => {
+          setIsHymliToolsOpen(false);
+          setIsUpgradeModalOpen(true);
+        }}
+      />
     </div>
   );
 };

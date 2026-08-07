@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   X,
   Clock,
@@ -22,12 +22,14 @@ import {
   Disc,
   Activity,
   Zap,
-  Waves,
-  RadioTower
-} from 'lucide-react';
-import { Beacon, BeaconComment, Profile } from '../types';
-import { loadGoogleFont } from './BeaconModal';
-import { supabase } from '../lib/supabase';
+Waves,
+  RadioTower,
+  SlidersHorizontal,
+} from "lucide-react";
+import { Beacon, BeaconComment, Profile } from "../types";
+import { loadGoogleFont } from "./BeaconModal";
+import { supabase } from "../lib/supabase";
+import { BeaconControls } from "./beacons/BeaconControls";
 
 interface BeaconViewerProps {
   beacons: Beacon[];
@@ -42,20 +44,31 @@ interface BeaconViewerProps {
 }
 
 /** 10 Animated Audio Playback Visualizer Components */
-const AudioVisualizerRenderer: React.FC<{ type?: string; isPlaying: boolean }> = ({ type = 'frequency', isPlaying }) => {
+const AudioVisualizerRenderer: React.FC<{
+  type?: string;
+  isPlaying: boolean;
+}> = ({ type = "frequency", isPlaying }) => {
   switch (type) {
-    case 'sonar':
+    case "sonar":
       return (
         <div className="relative w-36 h-36 mx-auto flex items-center justify-center my-2">
-          <div className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping" style={{ animationDuration: isPlaying ? '2s' : '4s' }} />
-          <div className="absolute inset-2 rounded-full border border-indigo-500/40 animate-ping" style={{ animationDuration: isPlaying ? '1.5s' : '0s' }} />
+          <div
+            className="absolute inset-0 rounded-full border border-cyan-500/30 animate-ping"
+            style={{ animationDuration: isPlaying ? "2s" : "4s" }}
+          />
+          <div
+            className="absolute inset-2 rounded-full border border-indigo-500/40 animate-ping"
+            style={{ animationDuration: isPlaying ? "1.5s" : "0s" }}
+          />
           <div className="w-16 h-16 rounded-full bg-cyan-500/20 border border-cyan-400 flex items-center justify-center shadow-lg shadow-cyan-500/30">
-            <RadioTower className={`w-8 h-8 text-cyan-300 ${isPlaying ? 'animate-bounce' : ''}`} />
+            <RadioTower
+              className={`w-8 h-8 text-cyan-300 ${isPlaying ? "animate-bounce" : ""}`}
+            />
           </div>
         </div>
       );
 
-    case 'neon':
+    case "neon":
       return (
         <div className="flex items-center justify-center gap-1.5 h-16 my-2">
           {[60, 90, 40, 100, 70, 85, 45, 95, 30, 75, 55, 100].map((h, i) => (
@@ -63,11 +76,11 @@ const AudioVisualizerRenderer: React.FC<{ type?: string; isPlaying: boolean }> =
               key={i}
               className={`w-1.5 rounded-full transition-all duration-300 ${
                 isPlaying
-                  ? 'bg-gradient-to-t from-pink-500 to-cyan-400 shadow-md shadow-cyan-400/50 animate-pulse'
-                  : 'bg-slate-700 h-3'
+                  ? "bg-gradient-to-t from-pink-500 to-cyan-400 shadow-md shadow-cyan-400/50 animate-pulse"
+                  : "bg-slate-700 h-3"
               }`}
               style={{
-                height: isPlaying ? `${h}%` : '12px',
+                height: isPlaying ? `${h}%` : "12px",
                 animationDelay: `${i * 0.08}s`,
               }}
             />
@@ -75,14 +88,14 @@ const AudioVisualizerRenderer: React.FC<{ type?: string; isPlaying: boolean }> =
         </div>
       );
 
-    case 'ripples':
+    case "ripples":
       return (
         <div className="relative w-32 h-32 mx-auto flex items-center justify-center my-2">
           {[1, 2, 3].map((r) => (
             <div
               key={r}
               className={`absolute rounded-full border-2 border-cyan-400/40 ${
-                isPlaying ? 'animate-ping' : 'opacity-20'
+                isPlaying ? "animate-ping" : "opacity-20"
               }`}
               style={{
                 width: `${r * 30}%`,
@@ -95,37 +108,47 @@ const AudioVisualizerRenderer: React.FC<{ type?: string; isPlaying: boolean }> =
         </div>
       );
 
-    case 'orbital':
+    case "orbital":
       return (
         <div className="relative w-32 h-32 mx-auto flex items-center justify-center my-2">
-          <div className={`w-full h-full rounded-full border border-dashed border-cyan-400/50 ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '6s' }} />
+          <div
+            className={`w-full h-full rounded-full border border-dashed border-cyan-400/50 ${isPlaying ? "animate-spin" : ""}`}
+            style={{ animationDuration: "6s" }}
+          />
           <div className="absolute w-4 h-4 rounded-full bg-cyan-400 shadow-lg shadow-cyan-400/80 top-0" />
           <div className="absolute w-3 h-3 rounded-full bg-pink-500 shadow-lg shadow-pink-500/80 bottom-0" />
           <Zap className="w-6 h-6 text-cyan-300 absolute" />
         </div>
       );
 
-    case 'cassette':
+    case "cassette":
       return (
         <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 my-2 max-w-xs mx-auto">
           <div className="flex items-center justify-around">
-            <div className={`w-10 h-10 rounded-full border-4 border-slate-700 border-t-cyan-400 ${isPlaying ? 'animate-spin' : ''}`}>
+            <div
+              className={`w-10 h-10 rounded-full border-4 border-slate-700 border-t-cyan-400 ${isPlaying ? "animate-spin" : ""}`}
+            >
               <div className="w-2 h-2 rounded-full bg-cyan-400 m-auto mt-2" />
             </div>
             <div className="h-4 w-16 bg-slate-800 rounded flex items-center justify-center text-[9px] font-mono text-cyan-300">
               HARBOR-TAPE
             </div>
-            <div className={`w-10 h-10 rounded-full border-4 border-slate-700 border-t-pink-400 ${isPlaying ? 'animate-spin' : ''}`}>
+            <div
+              className={`w-10 h-10 rounded-full border-4 border-slate-700 border-t-pink-400 ${isPlaying ? "animate-spin" : ""}`}
+            >
               <div className="w-2 h-2 rounded-full bg-pink-400 m-auto mt-2" />
             </div>
           </div>
         </div>
       );
 
-    case 'vinyl':
+    case "vinyl":
       return (
         <div className="relative w-32 h-32 mx-auto flex items-center justify-center my-2">
-          <div className={`w-full h-full rounded-full bg-slate-950 border-4 border-slate-800 shadow-2xl flex items-center justify-center ${isPlaying ? 'animate-spin' : ''}`} style={{ animationDuration: '3s' }}>
+          <div
+            className={`w-full h-full rounded-full bg-slate-950 border-4 border-slate-800 shadow-2xl flex items-center justify-center ${isPlaying ? "animate-spin" : ""}`}
+            style={{ animationDuration: "3s" }}
+          >
             <div className="w-12 h-12 rounded-full bg-cyan-500/30 border border-cyan-400/60 flex items-center justify-center">
               <Disc className="w-6 h-6 text-cyan-300" />
             </div>
@@ -133,11 +156,14 @@ const AudioVisualizerRenderer: React.FC<{ type?: string; isPlaying: boolean }> =
         </div>
       );
 
-    case 'matrix':
+    case "matrix":
       return (
         <div className="flex items-center justify-around h-16 bg-slate-950/80 p-2 rounded-xl border border-emerald-500/30 font-mono text-[10px] text-emerald-400 overflow-hidden my-2">
           {[1, 2, 3, 4, 5, 6].map((col) => (
-            <div key={col} className={`flex flex-col gap-1 ${isPlaying ? 'animate-pulse' : ''}`}>
+            <div
+              key={col}
+              className={`flex flex-col gap-1 ${isPlaying ? "animate-pulse" : ""}`}
+            >
               <span>01</span>
               <span>10</span>
               <span>11</span>
@@ -146,39 +172,45 @@ const AudioVisualizerRenderer: React.FC<{ type?: string; isPlaying: boolean }> =
         </div>
       );
 
-    case 'laser':
+    case "laser":
       return (
         <div className="relative w-full h-16 bg-slate-950/80 rounded-xl overflow-hidden my-2 border border-cyan-500/30 flex items-center justify-center">
-          <div className={`absolute h-0.5 bg-gradient-to-r from-cyan-400 via-pink-500 to-indigo-500 w-full ${isPlaying ? 'animate-pulse' : ''}`} />
+          <div
+            className={`absolute h-0.5 bg-gradient-to-r from-cyan-400 via-pink-500 to-indigo-500 w-full ${isPlaying ? "animate-pulse" : ""}`}
+          />
           <Activity className="w-8 h-8 text-cyan-300 z-10 animate-bounce" />
         </div>
       );
 
-    case 'telemetry':
+    case "telemetry":
       return (
         <div className="p-3 bg-slate-950/90 rounded-xl border border-cyan-400/40 my-2 font-mono text-[10px] text-cyan-300 flex items-center justify-between">
           <span>RF: 433.92MHz</span>
           <div className="flex items-center gap-1">
-            <div className={`w-2 h-2 rounded-full bg-cyan-400 ${isPlaying ? 'animate-ping' : ''}`} />
+            <div
+              className={`w-2 h-2 rounded-full bg-cyan-400 ${isPlaying ? "animate-ping" : ""}`}
+            />
             <span>SIGNAL OK</span>
           </div>
         </div>
       );
 
-    case 'frequency':
+    case "frequency":
     default:
       return (
         <div className="flex items-center justify-center gap-1 h-16 my-2">
-          {[40, 70, 30, 90, 60, 100, 45, 80, 50, 85, 35, 65, 75, 95].map((h, i) => (
-            <div
-              key={i}
-              className={`w-1 bg-cyan-400 rounded-full transition-all duration-200 ${isPlaying ? 'animate-pulse' : 'h-2'}`}
-              style={{
-                height: isPlaying ? `${h}%` : '8px',
-                animationDelay: `${i * 0.05}s`,
-              }}
-            />
-          ))}
+          {[40, 70, 30, 90, 60, 100, 45, 80, 50, 85, 35, 65, 75, 95].map(
+            (h, i) => (
+              <div
+                key={i}
+                className={`w-1 bg-cyan-400 rounded-full transition-all duration-200 ${isPlaying ? "animate-pulse" : "h-2"}`}
+                style={{
+                  height: isPlaying ? `${h}%` : "8px",
+                  animationDelay: `${i * 0.05}s`,
+                }}
+              />
+            ),
+          )}
         </div>
       );
   }
@@ -196,30 +228,42 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
   onEditBeacon,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
-  const [commentText, setCommentText] = useState('');
+  const [commentText, setCommentText] = useState("");
   const [isPrivateDmReply, setIsPrivateDmReply] = useState(false);
-  
+
   // Creator view mode sub-tabs
-  const [creatorTab, setCreatorTab] = useState<'viewers' | 'comments'>('comments');
-  const [creatorReplyText, setCreatorReplyText] = useState('');
+  const [creatorTab, setCreatorTab] = useState<"viewers" | "comments">(
+    "comments",
+  );
+  const [creatorReplyText, setCreatorReplyText] = useState("");
 
   // Editing state
   const [isEditing, setIsEditing] = useState(false);
-  const [editedCaption, setEditedCaption] = useState('');
+  const [editedCaption, setEditedCaption] = useState("");
   const [showEditedAuditModal, setShowEditedAuditModal] = useState(false);
+
+  // Beacon Controls state
+  const [controlsOpen, setControlsOpen] = useState(false);
 
   // Audio Playback State
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
 
-  const [timeLeft, setTimeLeft] = useState<{ hours: number; minutes: number; seconds: number }>({
+  const [timeLeft, setTimeLeft] = useState<{
+    hours: number;
+    minutes: number;
+    seconds: number;
+  }>({
     hours: 0,
     minutes: 0,
     seconds: 0,
   });
 
   const currentBeacon = beacons[currentIndex] || null;
-  const isCreator = currentUser && currentBeacon ? currentUser.id === currentBeacon.user_id : false;
+  const isCreator =
+    currentUser && currentBeacon
+      ? currentUser.id === currentBeacon.user_id
+      : false;
 
   useEffect(() => {
     setCurrentIndex(initialIndex);
@@ -234,7 +278,7 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
     if (currentBeacon.caption_font_family) {
       loadGoogleFont(currentBeacon.caption_font_family);
     }
-    setEditedCaption(currentBeacon.text_content || '');
+    setEditedCaption(currentBeacon.text_content || "");
     setIsEditing(false);
     setShowEditedAuditModal(false);
     setIsPlayingAudio(false);
@@ -248,13 +292,13 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
           onViewBeacon(currentBeacon.id);
         }
         try {
-          await supabase.from('beacon_views').upsert({
+          await supabase.from("beacon_views").upsert({
             beacon_id: currentBeacon.id,
             user_id: currentUser.id,
             viewed_at: new Date().toISOString(),
           });
         } catch (err) {
-          console.warn('[BeaconViewer] Exception recording view:', err);
+          console.warn("[BeaconViewer] Exception recording view:", err);
         }
       }, 1500);
     }
@@ -303,12 +347,17 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to submerge and delete this Beacon?')) return;
+    if (
+      !window.confirm(
+        "Are you sure you want to submerge and delete this Beacon?",
+      )
+    )
+      return;
 
     try {
-      await supabase.from('beacons').delete().eq('id', currentBeacon.id);
+      await supabase.from("beacons").delete().eq("id", currentBeacon.id);
     } catch (err) {
-      console.warn('Beacon delete note:', err);
+      console.warn("Beacon delete note:", err);
     }
 
     if (onDeleteBeacon) {
@@ -325,7 +374,8 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
   const handleSaveEdit = async () => {
     if (!editedCaption.trim()) return;
 
-    const originalCap = currentBeacon.original_caption || currentBeacon.text_content || '';
+    const originalCap =
+      currentBeacon.original_caption || currentBeacon.text_content || "";
     const updatedBeacon: Beacon = {
       ...currentBeacon,
       text_content: editedCaption.trim(),
@@ -337,16 +387,16 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
 
     try {
       await supabase
-        .from('beacons')
+        .from("beacons")
         .update({
           text_content: editedCaption.trim(),
           is_edited: true,
           original_caption: originalCap,
           edited_at: new Date().toISOString(),
         })
-        .eq('id', currentBeacon.id);
+        .eq("id", currentBeacon.id);
     } catch (err) {
-      console.warn('Beacon update note:', err);
+      console.warn("Beacon update note:", err);
     }
 
     if (onEditBeacon) {
@@ -371,7 +421,7 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
     };
 
     onAddComment(currentBeacon.id, newComment);
-    setCommentText('');
+    setCommentText("");
   };
 
   const handleCreatorReply = (e: React.FormEvent) => {
@@ -389,7 +439,7 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
     };
 
     onAddComment(currentBeacon.id, creatorComment);
-    setCreatorReplyText('');
+    setCreatorReplyText("");
   };
 
   const handleQuickReaction = (emoji: string) => {
@@ -404,14 +454,16 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
     onAddComment(currentBeacon.id, reactionComment);
   };
 
-  const pad = (num: number) => String(num).padStart(2, '0');
-  const externalViewers = (currentBeacon.viewed_by || []).filter((id) => id !== currentBeacon.user_id);
-  const mediaUrl = currentBeacon.content_url || (currentBeacon as any).media_url || '';
+  const pad = (num: number) => String(num).padStart(2, "0");
+  const externalViewers = (currentBeacon.viewed_by || []).filter(
+    (id) => id !== currentBeacon.user_id,
+  );
+  const mediaUrl =
+    currentBeacon.content_url || (currentBeacon as any).media_url || "";
 
   return (
     /* REQUIREMENT 1: FULLSCREEN IMMERSIVE CONTAINER WITH CLEAN DARK OUTER BACKDROP */
     <div className="fixed inset-0 z-50 w-screen h-screen bg-black/95 flex flex-col justify-between p-4 sm:p-6 overflow-hidden text-slate-100">
-      
       {/* Audit Log Modal for Edited Beacons */}
       {showEditedAuditModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
@@ -421,20 +473,30 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                 <Info className="w-4 h-4 text-cyan-400" />
                 Beacon Edit Audit History
               </span>
-              <button onClick={() => setShowEditedAuditModal(false)} className="text-slate-400 hover:text-white cursor-pointer">
+              <button
+                onClick={() => setShowEditedAuditModal(false)}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
                 <X className="w-4 h-4" />
               </button>
             </div>
             <div className="space-y-2 text-xs">
               <div>
-                <span className="text-slate-400 block text-[10px]">ORIGINAL CAPTION:</span>
+                <span className="text-slate-400 block text-[10px]">
+                  ORIGINAL CAPTION:
+                </span>
                 <p className="p-2.5 rounded-xl bg-slate-950 text-slate-200 border border-slate-800 italic">
-                  "{currentBeacon.original_caption || 'No previous text recorded'}"
+                  "
+                  {currentBeacon.original_caption ||
+                    "No previous text recorded"}
+                  "
                 </p>
               </div>
               {currentBeacon.edited_at && (
                 <div>
-                  <span className="text-slate-400 block text-[10px]">EDITED TIMESTAMP:</span>
+                  <span className="text-slate-400 block text-[10px]">
+                    EDITED TIMESTAMP:
+                  </span>
                   <span className="text-cyan-400 font-mono text-[11px]">
                     {new Date(currentBeacon.edited_at).toLocaleString()}
                   </span>
@@ -450,14 +512,17 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
         {/* Story Progress Bars */}
         <div className="flex items-center gap-1.5">
           {beacons.map((b, idx) => (
-            <div key={b.id} className="h-1 flex-1 bg-slate-800 rounded-full overflow-hidden">
+            <div
+              key={b.id}
+              className="h-1 flex-1 bg-slate-800 rounded-full overflow-hidden"
+            >
               <div
                 className={`h-full transition-all duration-300 ${
                   idx < currentIndex
-                    ? 'w-full bg-cyan-400'
+                    ? "w-full bg-cyan-400"
                     : idx === currentIndex
-                    ? 'w-full bg-cyan-400 animate-pulse'
-                    : 'w-0'
+                      ? "w-full bg-cyan-400 animate-pulse"
+                      : "w-0"
                 }`}
               />
             </div>
@@ -468,15 +533,20 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <img
-              src={currentBeacon.author.avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200'}
+              src={
+                currentBeacon.author.avatar ||
+                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200"
+              }
               alt={currentBeacon.author.name}
               className="w-10 h-10 rounded-full object-cover border-2 border-cyan-400 shadow-md"
             />
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-bold text-sm text-white">{currentBeacon.author.name}</span>
+                <span className="font-bold text-sm text-white">
+                  {currentBeacon.author.name}
+                </span>
                 <Radio className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-                
+
                 {/* Edited Badge */}
                 {currentBeacon.is_edited && (
                   <button
@@ -494,7 +564,8 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                 <span>•</span>
                 <span className="flex items-center gap-1 text-cyan-300">
                   <Clock className="w-3 h-3 text-cyan-400" />
-                  HUD: {pad(timeLeft.hours)}:{pad(timeLeft.minutes)}:{pad(timeLeft.seconds)}
+                  HUD: {pad(timeLeft.hours)}:{pad(timeLeft.minutes)}:
+                  {pad(timeLeft.seconds)}
                 </span>
               </div>
             </div>
@@ -502,8 +573,15 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
 
           <div className="flex items-center gap-2">
             {/* Creator Action Buttons (Trash & Edit) */}
-            {isCreator && (
+{isCreator && (
               <>
+                <button
+                  onClick={() => setControlsOpen(true)}
+                  className="p-2 rounded-full bg-slate-800 text-amber-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
+                  title="Beacon Controls"
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                </button>
                 <button
                   onClick={() => setIsEditing(!isEditing)}
                   className="p-2 rounded-full bg-slate-800 text-cyan-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer"
@@ -561,16 +639,20 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
             <div
               className={`p-6 rounded-2xl shadow-2xl border border-white/10 transition-all duration-500 relative overflow-hidden text-center ${
                 !currentBeacon.custom_hex
-                  ? `bg-gradient-to-br ${currentBeacon.bg_gradient || 'from-cyan-900 via-indigo-900 to-slate-950'}`
-                  : ''
+                  ? `bg-gradient-to-br ${currentBeacon.bg_gradient || "from-cyan-900 via-indigo-900 to-slate-950"}`
+                  : ""
               }`}
-              style={currentBeacon.custom_hex ? { background: currentBeacon.custom_hex } : undefined}
+              style={
+                currentBeacon.custom_hex
+                  ? { background: currentBeacon.custom_hex }
+                  : undefined
+              }
             >
               <div className="absolute inset-0 bg-slate-950/35 backdrop-blur-[2px] pointer-events-none" />
 
               <div className="relative z-10 space-y-4">
                 {/* Media Renderer */}
-                {currentBeacon.media_type === 'video' && mediaUrl && (
+                {currentBeacon.media_type === "video" && mediaUrl && (
                   <video
                     src={mediaUrl}
                     controls
@@ -581,21 +663,24 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                   />
                 )}
 
-                {(currentBeacon.media_type === 'image' || currentBeacon.media_type === ('photo' as any)) && mediaUrl && (
-                  <img
-                    src={mediaUrl}
-                    alt="Beacon"
-                    className="w-full max-h-[55vh] object-contain rounded-xl shadow-2xl border border-white/10"
-                  />
-                )}
+                {(currentBeacon.media_type === "image" ||
+                  currentBeacon.media_type === ("photo" as any)) &&
+                  mediaUrl && (
+                    <img
+                      src={mediaUrl}
+                      alt="Beacon"
+                      className="w-full max-h-[55vh] object-contain rounded-xl shadow-2xl border border-white/10"
+                    />
+                  )}
 
                 {/* REQUIREMENT 4: 10 AUDIO PLAYBACK VISUALIZERS */}
-                {currentBeacon.media_type === 'audio' && (
+                {currentBeacon.media_type === "audio" && (
                   <div className="p-4 rounded-xl bg-slate-950/90 border border-cyan-400/40 shadow-xl space-y-3">
                     <div className="flex items-center justify-center gap-2 text-cyan-300">
                       <Volume2 className="w-5 h-5 animate-pulse" />
                       <span className="font-bold text-xs uppercase tracking-wider">
-                        {currentBeacon.audio_visualizer || 'Frequency'} Visualizer
+                        {currentBeacon.audio_visualizer || "Frequency"}{" "}
+                        Visualizer
                       </span>
                     </div>
 
@@ -649,9 +734,11 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                       <p
                         style={{
                           fontFamily:
-                            currentBeacon.media_type === 'text'
+                            currentBeacon.media_type === "text"
                               ? currentBeacon.font_family || undefined
-                              : currentBeacon.caption_font_family || currentBeacon.font_family || undefined,
+                              : currentBeacon.caption_font_family ||
+                                currentBeacon.font_family ||
+                                undefined,
                         }}
                         className="font-medium text-white leading-relaxed text-base"
                       >
@@ -676,11 +763,11 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
         <div className="relative z-20 bg-slate-950 border-t border-slate-800 max-w-lg mx-auto w-full rounded-t-2xl overflow-hidden">
           <div className="flex items-center border-b border-slate-800 bg-slate-900/90">
             <button
-              onClick={() => setCreatorTab('viewers')}
+              onClick={() => setCreatorTab("viewers")}
               className={`flex-1 py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all cursor-pointer ${
-                creatorTab === 'viewers'
-                  ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
+                creatorTab === "viewers"
+                  ? "border-cyan-400 text-cyan-300 bg-cyan-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
               }`}
             >
               <Eye className="w-4 h-4" />
@@ -688,20 +775,22 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
             </button>
 
             <button
-              onClick={() => setCreatorTab('comments')}
+              onClick={() => setCreatorTab("comments")}
               className={`flex-1 py-3 px-4 text-xs font-bold flex items-center justify-center gap-2 border-b-2 transition-all cursor-pointer ${
-                creatorTab === 'comments'
-                  ? 'border-cyan-400 text-cyan-300 bg-cyan-500/10'
-                  : 'border-transparent text-slate-400 hover:text-slate-200'
+                creatorTab === "comments"
+                  ? "border-cyan-400 text-cyan-300 bg-cyan-500/10"
+                  : "border-transparent text-slate-400 hover:text-slate-200"
               }`}
             >
               <MessageSquare className="w-4 h-4" />
-              <span>💬 Comments & Replies ({currentBeacon.comments?.length || 0})</span>
+              <span>
+                💬 Comments & Replies ({currentBeacon.comments?.length || 0})
+              </span>
             </button>
           </div>
 
           <div className="p-4 max-h-44 overflow-y-auto">
-            {creatorTab === 'viewers' ? (
+            {creatorTab === "viewers" ? (
               <div className="space-y-2 text-left">
                 <h4 className="text-[11px] uppercase font-bold text-slate-400 tracking-wider flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5 text-cyan-400" />
@@ -730,9 +819,14 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                 {currentBeacon.comments && currentBeacon.comments.length > 0 ? (
                   <div className="space-y-2">
                     {currentBeacon.comments.map((c) => (
-                      <div key={c.id} className="text-xs p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1">
+                      <div
+                        key={c.id}
+                        className="text-xs p-2.5 rounded-xl bg-slate-900 border border-slate-800 space-y-1"
+                      >
                         <div className="flex items-center justify-between">
-                          <span className="font-bold text-cyan-300">{c.user_name}</span>
+                          <span className="font-bold text-cyan-300">
+                            {c.user_name}
+                          </span>
                           {c.is_private_dm && (
                             <span className="text-[10px] text-amber-400 font-mono flex items-center gap-1">
                               <Lock className="w-2.5 h-2.5" /> Private DM
@@ -744,10 +838,15 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                     ))}
                   </div>
                 ) : (
-                  <p className="text-xs text-slate-500 italic text-center py-2">No comments on this Beacon yet.</p>
+                  <p className="text-xs text-slate-500 italic text-center py-2">
+                    No comments on this Beacon yet.
+                  </p>
                 )}
 
-                <form onSubmit={handleCreatorReply} className="flex items-center gap-2 pt-2">
+                <form
+                  onSubmit={handleCreatorReply}
+                  className="flex items-center gap-2 pt-2"
+                >
                   <input
                     type="text"
                     value={creatorReplyText}
@@ -771,7 +870,7 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
       ) : (
         <div className="relative z-20 p-4 bg-slate-950 border-t border-slate-800 space-y-3 max-w-lg mx-auto w-full rounded-t-2xl">
           <div className="flex items-center justify-center gap-3">
-            {['❤️', '👍', '🔥', '🌊', '⚡'].map((emoji) => (
+            {["❤️", "👍", "🔥", "🌊", "⚡"].map((emoji) => (
               <button
                 key={emoji}
                 type="button"
@@ -791,7 +890,9 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                 ) : (
                   <Lock className="w-3 h-3 text-amber-400" />
                 )}
-                {currentBeacon.allow_public_comments ? 'Public Thread Comment' : 'Private DM Only'}
+                {currentBeacon.allow_public_comments
+                  ? "Public Thread Comment"
+                  : "Private DM Only"}
               </span>
 
               {currentBeacon.allow_public_comments && (
@@ -800,11 +901,13 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                   onClick={() => setIsPrivateDmReply(!isPrivateDmReply)}
                   className={`text-[10px] font-bold px-2 py-0.5 rounded-full border transition-colors cursor-pointer ${
                     isPrivateDmReply
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                      : 'bg-slate-800 text-slate-400 border-slate-700'
+                      ? "bg-amber-500/20 text-amber-300 border-amber-500/40"
+                      : "bg-slate-800 text-slate-400 border-slate-700"
                   }`}
                 >
-                  {isPrivateDmReply ? '🔒 Sending as Private DM' : '🌐 Sending as Public'}
+                  {isPrivateDmReply
+                    ? "🔒 Sending as Private DM"
+                    : "🌐 Sending as Public"}
                 </button>
               )}
             </div>
@@ -816,12 +919,12 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
                 onChange={(e) => setCommentText(e.target.value)}
                 placeholder={
                   !currentBeacon.allow_public_comments || isPrivateDmReply
-                    ? 'Reply privately via direct message...'
-                    : 'Add public thread comment to Beacon...'
+                    ? "Reply privately via direct message..."
+                    : "Add public thread comment to Beacon..."
                 }
                 className="flex-1 px-4 py-2.5 rounded-full bg-slate-900 border border-slate-800 text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-cyan-500"
               />
-              <button
+<button
                 type="submit"
                 disabled={!commentText.trim()}
                 className="p-2.5 rounded-full bg-cyan-500 text-slate-950 font-bold hover:bg-cyan-400 disabled:opacity-40 transition-all cursor-pointer"
@@ -832,6 +935,13 @@ export const BeaconViewer: React.FC<BeaconViewerProps> = ({
           </form>
         </div>
       )}
+
+      {/* Live Beacon & Story Controls Modal */}
+      <BeaconControls
+        isOpen={controlsOpen}
+        onClose={() => setControlsOpen(false)}
+        beacon={currentBeacon}
+      />
     </div>
   );
 };

@@ -18,6 +18,8 @@ import { FeedTab } from './tabs/FeedTab';
 import { ReelsTab } from './tabs/ReelsTab';
 import { ProfileTab } from './tabs/ProfileTab';
 import { AuthScreen } from './AuthScreen';
+import { useWebRTCCall } from '../hooks/useWebRTCCall';
+import { CallOverlay } from './CallOverlay';
 
 interface MainLayoutProps {
   currentUser: Profile;
@@ -37,6 +39,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [activeTab, setActiveTab] = useState<ActiveTab>('chats');
   const [globalSearch, setGlobalSearch] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+
+  // ---- GLOBAL WEBRTC CALL STATE ----
+  // Instantiated once at the app root so the incoming-call signaling listener
+  // and ringing chime stay ACTIVE across all tabs (Chats, Feed, Reels, Profile),
+  // not just when a conversation is open.
+  const webrtc = useWebRTCCall(currentUser);
+
 
   // Authentication & Routing Fallback
   if (!currentUser || !currentUser.id) {
@@ -191,7 +200,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             transition={{ duration: 0.2 }}
             className="h-full"
           >
-            {activeTab === 'chats' && <ChatsTab currentUser={currentUser} isDark={isDark} />}
+{activeTab === 'chats' && (
+              <ChatsTab
+                currentUser={currentUser}
+                isDark={isDark}
+                webrtc={webrtc}
+              />
+            )}
             {activeTab === 'feed' && <FeedTab currentUser={currentUser} isDark={isDark} />}
             {activeTab === 'reels' && <ReelsTab currentUser={currentUser} isDark={isDark} />}
             {activeTab === 'profile' && (
@@ -271,7 +286,29 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             <span className="text-[11px] font-semibold">Profile</span>
           </button>
         </div>
-      </nav>
+</nav>
+
+      {/* GLOBAL CALL OVERLAY — renders above all tabs so incoming calls are
+          visible & answerable from anywhere in the app */}
+      {(webrtc.callState !== "idle" || webrtc.incomingCall) && (
+        <CallOverlay
+          currentUser={currentUser}
+          callState={webrtc.callState}
+          callType={webrtc.callType}
+          targetUser={webrtc.targetUser}
+          incomingCall={webrtc.incomingCall}
+          localStream={webrtc.localStream}
+          remoteStream={webrtc.remoteStream}
+          isMuted={webrtc.isMuted}
+          isCameraOff={webrtc.isCameraOff}
+          callDuration={webrtc.callDuration}
+          onAccept={webrtc.acceptCall}
+          onDecline={webrtc.declineCall}
+          onEndCall={webrtc.endCall}
+          onToggleMute={webrtc.toggleMute}
+          onToggleCamera={webrtc.toggleCamera}
+        />
+      )}
     </div>
   );
 };

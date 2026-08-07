@@ -73,12 +73,28 @@ CREATE TABLE IF NOT EXISTS public.messages (
   text TEXT,
   type TEXT DEFAULT 'text',
   image_url TEXT,
+  audio_url TEXT,
+  audio_duration TEXT,
   is_encrypted BOOLEAN DEFAULT true,
   reply_to_id UUID,
   reply_preview JSONB,
   call_info JSONB,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+-- Ensure audio_url / audio_duration columns exist for voice note messaging
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS audio_url TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS audio_duration TEXT;
+
+-- ==============================================================
+-- STORAGE BUCKET: voice-notes
+-- Create a public storage bucket for voice note audio clips.
+-- Run this in the Supabase Dashboard -> Storage -> New Bucket,
+-- set name = "voice-notes" and Public = ON, OR use the SQL below.
+-- ==============================================================
+-- INSERT INTO storage.buckets (id, name, public)
+-- VALUES ('voice-notes', 'voice-notes', true)
+-- ON CONFLICT (id) DO NOTHING;
 
 -- Delivery state vector: 0 = Stranded, 1 = Launched, 2 = Docked, 3 = Submerged
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS delivery_state SMALLINT DEFAULT 1;
@@ -178,6 +194,70 @@ ALTER TABLE public.comments ADD COLUMN IF NOT EXISTS parent_id UUID REFERENCES p
 CREATE INDEX IF NOT EXISTS idx_comments_parent_id ON public.comments(parent_id);
 
 -- ----------------------------------------------------------------------------
+-- 5b. MESSAGE ACTION ENGINE TABLES
+--      1. message_reactions   - emoji reactions on messages w/ sub-categories
+--      2. starred_messages    - bookmarked messages in named collections
+--      3. message_reports     - moderation reports (Spam / Harassment / Misinformation)
+--      4. message_edit_history- revision log for edited messages
+-- ----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.message_reactions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL DEFAULT '👍',
+  category TEXT NOT NULL DEFAULT 'frequently_used',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT check_reaction_category CHECK (
+    category IN ('frequently_used', 'animals', 'objects')
+  ),
+  CONSTRAINT unique_message_user_reaction UNIQUE (message_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_reactions_message ON public.message_reactions(message_id);
+CREATE INDEX IF NOT EXISTS idx_message_reactions_user ON public.message_reactions(user_id);
+
+CREATE TABLE IF NOT EXISTS public.starred_messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  collection TEXT NOT NULL DEFAULT 'Read Later',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT check_star_collection CHECK (
+    collection IN ('Work', 'Personal', 'Read Later')
+  ),
+  CONSTRAINT unique_user_star UNIQUE (message_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_starred_messages_user ON public.starred_messages(user_id);
+
+CREATE TABLE IF NOT EXISTS public.message_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
+  reporter_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  reason TEXT NOT NULL DEFAULT 'Spam',
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT check_report_reason CHECK (
+    reason IN ('Spam', 'Harassment', 'Misinformation')
+  )
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_reports_message ON public.message_reports(message_id);
+
+CREATE TABLE IF NOT EXISTS public.message_edit_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  message_id UUID NOT NULL REFERENCES public.messages(id) ON DELETE CASCADE,
+  previous_text TEXT NOT NULL,
+  edited_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_message_edit_history_message ON public.message_edit_history(message_id);
+
+-- Pinned status column on messages (none pinned is NULL)
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_pinned BOOLEAN DEFAULT false;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS pin_expires_at TIMESTAMP WITH TIME ZONE NULL;
+
+-- ----------------------------------------------------------------------------
 -- 6. RPC TRANSACTION FUNCTIONS
 -- ----------------------------------------------------------------------------
 
@@ -245,5 +325,94 @@ BEGIN
   WHERE id = p_post_id;
 
   RETURN v_poll_data;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- ----------------------------------------------------------------------------
+-- 7. CHAT INFO DRAWER ENGINES
+--     1. conversation_preferences - per-room overrides (mute, timer, wallpaper,
+--                                   lock, block)
+--     2. conversation_groups      - shared-group memberships
+--     3. conversation_reports     - multi-step Block & Report submissions
+--     4. conversation_media_index - lightweight index for Media, Links & Docs
+-- ----------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS public.conversation_preferences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  muted_until TIMESTAMP WITH TIME ZONE NULL,
+  disappearing_timer TEXT DEFAULT 'Off',
+  wallpaper JSONB NULL,
+  is_locked BOOLEAN DEFAULT false,
+  lock_config JSONB NULL,
+  is_blocked BOOLEAN DEFAULT false,
+  block_reason TEXT NULL,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT check_disappearing_timer CHECK (
+    disappearing_timer IN ('Off', '24 Hours', '7 Days', '90 Days')
+  ),
+  CONSTRAINT unique_user_conversation_pref UNIQUE (conversation_id, user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_prefs_user ON public.conversation_preferences(user_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_prefs_conv ON public.conversation_preferences(conversation_id);
+
+CREATE TABLE IF NOT EXISTS public.conversation_groups (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id TEXT NOT NULL,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  group_name TEXT NOT NULL,
+  group_avatar TEXT NULL,
+  members_count INT DEFAULT 0,
+  last_active TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversation_groups_user ON public.conversation_groups(user_id);
+
+CREATE TABLE IF NOT EXISTS public.conversation_reports (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id TEXT NOT NULL,
+  reporter_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  target_user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  reasons TEXT[],          -- Reason Checklist
+  delete_chat BOOLEAN DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- RPC to upsert conversation preferences (returns the stored row)
+CREATE OR REPLACE FUNCTION public.upsert_conversation_preferences(
+  p_conversation_id TEXT,
+  p_user_id UUID,
+  p_muted_until TIMESTAMP WITH TIME Zone,
+  p_disappearing_timer TEXT,
+  p_wallpaper JSONB,
+  p_is_locked BOOLEAN,
+  p_lock_config JSONB,
+  p_is_blocked BOOLEAN,
+  p_block_reason TEXT
+) RETURNS JSONB AS $$
+DECLARE v_row JSONB;
+BEGIN
+  INSERT INTO public.conversation_preferences AS cp (
+    conversation_id, user_id, muted_until, disappearing_timer, wallpaper,
+    is_locked, lock_config, is_blocked, block_reason, updated_at
+  ) VALUES (
+    p_conversation_id, p_user_id, p_muted_until, p_disappearing_timer,
+    p_wallpaper, p_is_locked, p_lock_config, p_is_blocked, p_block_reason, NOW()
+  )
+  ON CONFLICT (conversation_id, user_id) DO UPDATE SET
+    muted_until = EXCLUDED.muted_until,
+    disappearing_timer = EXCLUDED.disappearing_timer,
+    wallpaper = EXCLUDED.wallpaper,
+    is_locked = EXCLUDED.is_locked,
+    lock_config = EXCLUDED.lock_config,
+    is_blocked = EXCLUDED.is_blocked,
+    block_reason = EXCLUDED.block_reason,
+    updated_at = NOW()
+  RETURNING to_jsonb(cp) INTO v_row;
+
+  RETURN v_row;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;

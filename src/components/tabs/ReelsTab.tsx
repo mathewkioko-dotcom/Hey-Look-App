@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Heart,
   MessageCircle,
@@ -12,10 +12,12 @@ import {
   Video,
   Sparkles,
   RefreshCw,
-  Film
-} from 'lucide-react';
-import { ReelItem, Profile } from '../../types';
-import { feedService } from '../../services/feedService';
+  Film,
+  MoreVertical,
+} from "lucide-react";
+import { ReelItem, Profile } from "../../types";
+import { feedService } from "../../services/feedService";
+import { ReelsMenuModal } from "../reels/ReelsMenuModal";
 
 interface ReelsTabProps {
   currentUser: Profile;
@@ -27,16 +29,22 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [showComments, setShowComments] = useState(false);
-  const [doubleTapHeart, setDoubleTapHeart] = useState<{ x: number; y: number } | null>(null);
+  const [doubleTapHeart, setDoubleTapHeart] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [followingMap, setFollowingMap] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
 
   // Upload Reel Modal
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-  const [reelCaption, setReelCaption] = useState('');
-  const [reelVideoUrl, setReelVideoUrl] = useState('');
-  const [reelSongTitle, setReelSongTitle] = useState('HeyLook Original Audio');
+  const [reelCaption, setReelCaption] = useState("");
+  const [reelVideoUrl, setReelVideoUrl] = useState("");
+  const [reelSongTitle, setReelSongTitle] = useState("HeyLook Original Audio");
   const [isPublishing, setIsPublishing] = useState(false);
+
+  // Reel context menu modal
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const loadReels = async () => {
     setIsLoading(true);
@@ -59,11 +67,13 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
           return {
             ...r,
             is_liked: newIsLiked,
-            likes_count: newIsLiked ? r.likes_count + 1 : Math.max(0, r.likes_count - 1),
+            likes_count: newIsLiked
+              ? r.likes_count + 1
+              : Math.max(0, r.likes_count - 1),
           };
         }
         return r;
-      })
+      }),
     );
   };
 
@@ -92,12 +102,12 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
       currentUser.id,
       reelCaption.trim(),
       reelVideoUrl.trim(),
-      reelSongTitle.trim()
+      reelSongTitle.trim(),
     );
 
     if (created) {
-      setReelCaption('');
-      setReelVideoUrl('');
+      setReelCaption("");
+      setReelVideoUrl("");
       setIsUploadModalOpen(false);
       await loadReels();
     }
@@ -105,9 +115,18 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   };
 
   const sampleVideoOptions = [
-    { title: 'Nature Breeze', url: 'https://assets.mixkit.co/videos/preview/mixkit-tree-branches-in-the-breeze-1188-large.mp4' },
-    { title: 'Sunset Plateau', url: 'https://assets.mixkit.co/videos/preview/mixkit-set-of-plateaus-seen-from-the-sky-in-a-sunset-26070-large.mp4' },
-    { title: 'Ocean Waves', url: 'https://assets.mixkit.co/videos/preview/mixkit-waves-in-the-water-1164-large.mp4' },
+    {
+      title: "Nature Breeze",
+      url: "https://assets.mixkit.co/videos/preview/mixkit-tree-branches-in-the-breeze-1188-large.mp4",
+    },
+    {
+      title: "Sunset Plateau",
+      url: "https://assets.mixkit.co/videos/preview/mixkit-set-of-plateaus-seen-from-the-sky-in-a-sunset-26070-large.mp4",
+    },
+    {
+      title: "Ocean Waves",
+      url: "https://assets.mixkit.co/videos/preview/mixkit-waves-in-the-water-1164-large.mp4",
+    },
   ];
 
   return (
@@ -116,7 +135,9 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
       <div className="absolute top-0 left-0 right-0 z-30 p-4 bg-gradient-to-b from-black/90 via-black/40 to-transparent flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="w-2.5 h-2.5 rounded-full bg-pink-500 animate-ping" />
-          <h2 className="font-extrabold tracking-wider text-base">Reels Stream</h2>
+          <h2 className="font-extrabold tracking-wider text-base">
+            Reels Stream
+          </h2>
         </div>
 
         <div className="flex items-center gap-2">
@@ -131,7 +152,11 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
             onClick={() => setIsMuted(!isMuted)}
             className="p-2 rounded-full bg-black/50 backdrop-blur-md text-white hover:bg-black/80 transition-colors"
           >
-            {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
+            {isMuted ? (
+              <VolumeX className="w-4 h-4" />
+            ) : (
+              <Volume2 className="w-4 h-4" />
+            )}
           </button>
         </div>
       </div>
@@ -139,7 +164,9 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
       {isLoading ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-3 z-10">
           <RefreshCw className="w-8 h-8 text-pink-500 animate-spin" />
-          <p className="text-xs font-mono text-slate-400">Loading Supabase Reel Stream...</p>
+          <p className="text-xs font-mono text-slate-400">
+            Loading Supabase Reel Stream...
+          </p>
         </div>
       ) : reels.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4 z-10 bg-slate-950">
@@ -147,9 +174,12 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
             <Film className="w-10 h-10" />
           </div>
           <div>
-            <h3 className="text-lg font-bold text-slate-100">No reels uploaded yet</h3>
+            <h3 className="text-lg font-bold text-slate-100">
+              No reels uploaded yet
+            </h3>
             <p className="text-xs text-slate-400 mt-1 max-w-xs">
-              Be the first to upload a short video stream to the Supabase database.
+              Be the first to upload a short video stream to the Supabase
+              database.
             </p>
           </div>
           <button
@@ -186,7 +216,10 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
                   initial={{ scale: 0, opacity: 1 }}
                   animate={{ scale: [0, 1.4, 1], opacity: [1, 1, 0] }}
                   exit={{ opacity: 0 }}
-                  style={{ top: doubleTapHeart.y - 30, left: doubleTapHeart.x - 30 }}
+                  style={{
+                    top: doubleTapHeart.y - 30,
+                    left: doubleTapHeart.x - 30,
+                  }}
                   className="absolute z-40 pointer-events-none"
                 >
                   <Heart className="w-16 h-16 text-rose-500 fill-rose-500 drop-shadow-lg" />
@@ -208,11 +241,13 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
                 <div
                   className={`p-3 rounded-full backdrop-blur-md transition-all ${
                     currentReel.is_liked
-                      ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/40 scale-110'
-                      : 'bg-black/40 hover:bg-black/60 text-white'
+                      ? "bg-rose-500 text-white shadow-lg shadow-rose-500/40 scale-110"
+                      : "bg-black/40 hover:bg-black/60 text-white"
                   }`}
                 >
-                  <Heart className={`w-6 h-6 ${currentReel.is_liked ? 'fill-current' : ''}`} />
+                  <Heart
+                    className={`w-6 h-6 ${currentReel.is_liked ? "fill-current" : ""}`}
+                  />
                 </div>
                 <span className="text-xs font-bold drop-shadow-md">
                   {currentReel.likes_count}
@@ -226,19 +261,23 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
                 <div className="p-3 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-all">
                   <MessageCircle className="w-6 h-6" />
                 </div>
-                <span className="text-xs font-bold drop-shadow-md">{currentReel.comments_count}</span>
+                <span className="text-xs font-bold drop-shadow-md">
+                  {currentReel.comments_count}
+                </span>
               </button>
 
               <button className="flex flex-col items-center gap-1 cursor-pointer focus:outline-none">
                 <div className="p-3 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-all">
                   <Share2 className="w-6 h-6" />
                 </div>
-                <span className="text-xs font-bold drop-shadow-md">{currentReel.shares_count}</span>
+                <span className="text-xs font-bold drop-shadow-md">
+                  {currentReel.shares_count}
+                </span>
               </button>
 
-              <motion.div
+<motion.div
                 animate={{ rotate: 360 }}
-                transition={{ duration: 6, repeat: Infinity, ease: 'linear' }}
+                transition={{ duration: 6, repeat: Infinity, ease: "linear" }}
                 className="w-10 h-10 rounded-full border-2 border-slate-700 bg-slate-900 overflow-hidden shadow-lg p-1"
               >
                 <img
@@ -247,6 +286,16 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
                   className="w-full h-full rounded-full object-cover"
                 />
               </motion.div>
+
+              <button
+                onClick={() => setIsMenuOpen(true)}
+                className="flex flex-col items-center gap-1 cursor-pointer focus:outline-none"
+                aria-label="Reel options"
+              >
+                <div className="p-2.5 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-all">
+                  <MoreVertical className="w-5 h-5" />
+                </div>
+              </button>
             </div>
           )}
 
@@ -259,17 +308,21 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
                   alt={currentReel.author.name}
                   className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
                 />
-                <span className="font-bold text-sm">@{currentReel.author.username}</span>
+                <span className="font-bold text-sm">
+                  @{currentReel.author.username}
+                </span>
 
                 <button
                   onClick={() => toggleFollow(currentReel.author.username)}
                   className={`ml-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
                     followingMap[currentReel.author.username]
-                      ? 'bg-slate-800 text-slate-300'
-                      : 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-md'
+                      ? "bg-slate-800 text-slate-300"
+                      : "bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-md"
                   }`}
                 >
-                  {followingMap[currentReel.author.username] ? 'Following' : 'Follow'}
+                  {followingMap[currentReel.author.username]
+                    ? "Following"
+                    : "Follow"}
                 </button>
               </div>
 
@@ -288,14 +341,20 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
           {reels.length > 1 && (
             <div className="absolute top-1/2 right-2 -translate-y-1/2 z-20 flex flex-col gap-2">
               <button
-                onClick={() => setActiveReelIndex((prev) => Math.max(0, prev - 1))}
+                onClick={() =>
+                  setActiveReelIndex((prev) => Math.max(0, prev - 1))
+                }
                 disabled={activeReelIndex === 0}
                 className="p-2 rounded-full bg-black/60 text-white disabled:opacity-30 hover:bg-black cursor-pointer"
               >
                 ▲
               </button>
               <button
-                onClick={() => setActiveReelIndex((prev) => Math.min(reels.length - 1, prev + 1))}
+                onClick={() =>
+                  setActiveReelIndex((prev) =>
+                    Math.min(reels.length - 1, prev + 1),
+                  )
+                }
                 disabled={activeReelIndex === reels.length - 1}
                 className="p-2 rounded-full bg-black/60 text-white disabled:opacity-30 hover:bg-black cursor-pointer"
               >
@@ -321,7 +380,9 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-400">Video Stream URL (MP4)</label>
+              <label className="text-xs font-medium text-slate-400">
+                Video Stream URL (MP4)
+              </label>
               <input
                 type="text"
                 placeholder="https://..."
@@ -333,7 +394,9 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
 
             {/* Quick sample video selector */}
             <div className="space-y-1">
-              <span className="text-[10px] text-slate-400 font-semibold uppercase">Or Pick Sample Video:</span>
+              <span className="text-[10px] text-slate-400 font-semibold uppercase">
+                Or Pick Sample Video:
+              </span>
               <div className="grid grid-cols-3 gap-1.5">
                 {sampleVideoOptions.map((opt, i) => (
                   <button
@@ -348,7 +411,9 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-400">Reel Caption</label>
+              <label className="text-xs font-medium text-slate-400">
+                Reel Caption
+              </label>
               <textarea
                 placeholder="Write a captivating reel description..."
                 value={reelCaption}
@@ -359,7 +424,9 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-400">Audio Track Title</label>
+              <label className="text-xs font-medium text-slate-400">
+                Audio Track Title
+              </label>
               <input
                 type="text"
                 value={reelSongTitle}
@@ -370,14 +437,24 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
 
             <button
               onClick={handleUploadReelSubmit}
-              disabled={!reelVideoUrl.trim() || !reelCaption.trim() || isPublishing}
+              disabled={
+                !reelVideoUrl.trim() || !reelCaption.trim() || isPublishing
+              }
               className="w-full py-3 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-600 font-bold text-sm text-white shadow-lg hover:scale-[1.02] transition-all disabled:opacity-40 cursor-pointer"
             >
-              {isPublishing ? 'Publishing Reel...' : 'Publish Reel'}
+{isPublishing ? "Publishing Reel..." : "Publish Reel"}
             </button>
           </div>
         </div>
       )}
+
+      {/* REEL CONTEXT MENU MODAL */}
+      <ReelsMenuModal
+        isOpen={isMenuOpen}
+        onClose={() => setIsMenuOpen(false)}
+        reel={currentReel || null}
+        currentUserId={currentUser.id}
+      />
     </div>
   );
 };

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Sparkles,
   Sun,
@@ -11,21 +11,22 @@ import {
   ShieldCheck,
   CheckCircle2,
   AlertCircle,
-  Anchor,
-  Waves,
-  Compass,
-  ChevronLeft,
-  ChevronRight,
-  Send,
   Mail,
   Lock,
   User,
   Eye,
   EyeOff,
-  KeyRound
-} from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { OAuthProvider } from '../types';
+  KeyRound,
+  Compass,
+  Anchor,
+  Waves,
+  Send,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
+import { supabase } from "../lib/supabase";
+import { OAuthProvider } from "../types";
+import { AuthCarousel } from "./auth/AuthCarousel";
 
 interface AuthScreenProps {
   isDark: boolean;
@@ -38,26 +39,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onToggleTheme,
   onLoginSuccess,
 }) => {
-  const [loadingProvider, setLoadingProvider] = useState<OAuthProvider | null>(null);
+  const [loadingProvider, setLoadingProvider] = useState<OAuthProvider | null>(
+    null,
+  );
   const [authError, setAuthError] = useState<string | null>(null);
   const [showConfigNotice, setShowConfigNotice] = useState<boolean>(false);
 
   // Email & Password Auth State
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [fullName, setFullName] = useState('');
+  const [authMode, setAuthMode] = useState<"signin" | "signup">("signin");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [formSuccess, setFormSuccess] = useState<string | null>(null);
 
+  // Mouse Reactive Background position
+  const [mousePos, setMousePos] = useState({ x: 50, y: 50 });
+
   // Carousel State
   const [activeSlide, setActiveSlide] = useState(0);
   const totalSlides = 3;
-
-  // Mouse Reactive Background position
-  const [mousePos, setMousePos] = useState({ x: 50, y: 50 });
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const { clientX, clientY } = e;
@@ -66,14 +69,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     const y = Math.round((clientY / innerHeight) * 100);
     setMousePos({ x, y });
   };
-
-  // Carousel Auto-advance every 5 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setActiveSlide((prev) => (prev + 1) % totalSlides);
-    }, 5000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Popup & Auth callback listener for Supabase authentication state changes
   useEffect(() => {
@@ -84,21 +79,24 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         const user = session.user;
         const profile = {
           id: user.id,
-          username: user.user_metadata?.username || user.email?.split('@')[0] || 'nautical_user',
+          username:
+            user.user_metadata?.username ||
+            user.email?.split("@")[0] ||
+            "nautical_user",
           full_name:
             user.user_metadata?.full_name ||
             user.user_metadata?.name ||
-            user.email?.split('@')[0] ||
-            'Nautical Explorer',
+            user.email?.split("@")[0] ||
+            "Nautical Explorer",
           avatar_url:
             user.user_metadata?.avatar_url ||
             `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.id)}`,
           is_online: true,
           last_seen: new Date().toISOString(),
-          bio: '✨ Exploring the future of social apps on HeyLook!',
-          followers_count: 1420,
-          following_count: 380,
-          posts_count: 24,
+          bio: "✨ Exploring the future of social apps on HeyLook!",
+          followers_count: 0,
+          following_count: 0,
+          posts_count: 0,
         };
         onLoginSuccess(profile);
       }
@@ -116,30 +114,30 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     setFormSuccess(null);
 
     // Form Validations
-    if (!email.trim() || !email.includes('@')) {
-      setFormError('Please enter a valid email address.');
+    if (!email.trim() || !email.includes("@")) {
+      setFormError("Please enter a valid email address.");
       return;
     }
     if (!password || password.length < 6) {
-      setFormError('Password must be at least 6 characters long.');
+      setFormError("Password must be at least 6 characters long.");
       return;
     }
-    if (authMode === 'signup' && !fullName.trim()) {
-      setFormError('Please enter your full name or display name.');
+    if (authMode === "signup" && !fullName.trim()) {
+      setFormError("Please enter your full name or display name.");
       return;
     }
 
     setIsSubmitting(true);
 
     try {
-      if (authMode === 'signup') {
+      if (authMode === "signup") {
         const { data, error } = await supabase.auth.signUp({
           email: email.trim(),
           password,
           options: {
             data: {
               full_name: fullName.trim(),
-              username: email.split('@')[0],
+              username: email.split("@")[0],
             },
           },
         });
@@ -150,12 +148,15 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           const user = data.session.user;
           const profile = {
             id: user.id,
-            username: user.user_metadata?.username || email.split('@')[0],
-            full_name: fullName.trim() || user.user_metadata?.full_name || 'Nautical Explorer',
+            username: user.user_metadata?.username || email.split("@")[0],
+            full_name:
+              fullName.trim() ||
+              user.user_metadata?.full_name ||
+              "Nautical Explorer",
             avatar_url: `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.id)}`,
             is_online: true,
             last_seen: new Date().toISOString(),
-            bio: '✨ Exploring the future of social apps on HeyLook!',
+            bio: "✨ Exploring the future of social apps on HeyLook!",
             followers_count: 0,
             following_count: 0,
             posts_count: 0,
@@ -163,7 +164,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           onLoginSuccess(profile);
         } else if (data.user) {
           setFormSuccess(
-            'Account created successfully! If email confirmation is required, check your inbox, or click "Sign In" above to enter.'
+            'Account created successfully! If email confirmation is required, check your inbox, or click "Sign In" above to enter.',
           );
         }
       } else {
@@ -175,22 +176,22 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
         if (error) {
           setFormError(
-            error.message === 'Invalid login credentials'
-              ? 'Invalid email or password. Please check your credentials and try again.'
-              : error.message
+            error.message === "Invalid login credentials"
+              ? "Invalid email or password. Please check your credentials and try again."
+              : error.message,
           );
         } else if (data.session?.user) {
           const user = data.session.user;
           const profile = {
             id: user.id,
-            username: user.user_metadata?.username || email.split('@')[0],
-            full_name: user.user_metadata?.full_name || 'Nautical Explorer',
+            username: user.user_metadata?.username || email.split("@")[0],
+            full_name: user.user_metadata?.full_name || "Nautical Explorer",
             avatar_url:
               user.user_metadata?.avatar_url ||
               `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(user.id)}`,
             is_online: true,
             last_seen: new Date().toISOString(),
-            bio: '✨ Exploring the future of social apps on HeyLook!',
+            bio: "✨ Exploring the future of social apps on HeyLook!",
             followers_count: 1420,
             following_count: 380,
             posts_count: 24,
@@ -199,7 +200,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         }
       }
     } catch (err: any) {
-      setFormError(err?.message || 'An unexpected error occurred. Please try again.');
+      setFormError(
+        err?.message || "An unexpected error occurred. Please try again.",
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -212,15 +215,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
     try {
       const isIframe = window.self !== window.top;
-      const redirectUrl = `${window.location.origin}${window.location.pathname}`;
+      // Always redirect back to this app's origin (never a hardcoded AI Studio URL).
+      const redirectUrl = `${window.location.origin}`;
 
       const options: any = {
         redirectTo: redirectUrl,
         skipBrowserRedirect: isIframe,
       };
 
-      if (provider === 'facebook') {
-        options.scopes = 'email';
+      if (provider === "facebook") {
+        options.scopes = "email";
       }
 
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -240,11 +244,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           const popup = window.open(
             data.url,
-            'OAuth',
-            `width=${width},height=${height},top=${top},left=${left},toolbar=no,location=no,status=no,menubar=no`
+            "OAuth",
+            `width=${width},height=${height},top=${top},left=${left},toolbar=no,location=no,status=no,menubar=no`,
           );
 
-          if (!popup || popup.closed || typeof popup.closed === 'undefined') {
+          if (!popup || popup.closed || typeof popup.closed === "undefined") {
             try {
               if (window.top) {
                 window.top.location.href = data.url;
@@ -262,38 +266,93 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         setShowConfigNotice(true);
       }
     } catch (err: any) {
-      setAuthError(`Authentication Notice: ${err?.message || 'Provider connection initiated'}`);
+      setAuthError(
+        `Authentication Notice: ${err?.message || "Provider connection initiated"}`,
+      );
       setShowConfigNotice(true);
     } finally {
       setLoadingProvider(null);
     }
   };
 
-  const handleGuestDemoLogin = (role: 'default' | 'creator' | 'business' = 'default') => {
+  // Dedicated Google OAuth handler using the standard Supabase flow
+  const handleGoogleLogin = async () => {
+    setLoadingProvider("google");
+    setAuthError(null);
+    setShowConfigNotice(false);
+
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          // Always redirect back to this app's current origin (never a hardcoded
+          // AI Studio URL). Supabase exchanges the OAuth code at this URL.
+          redirectTo: `${window.location.origin}`,
+        },
+      });
+
+      if (error) {
+        console.error("Login failed:", error.message);
+        setAuthError(`OAuth Notice: ${error.message}`);
+        setShowConfigNotice(true);
+      } else if (data?.url) {
+        window.location.href = data.url;
+      } else {
+        setShowConfigNotice(true);
+      }
+    } catch (err: any) {
+      console.error("Login failed:", err?.message || err);
+      setAuthError(
+        `Authentication Notice: ${err?.message || "Provider connection initiated"}`,
+      );
+      setShowConfigNotice(true);
+    } finally {
+      setLoadingProvider(null);
+    }
+  };
+
+  const handleGuestDemoLogin = (
+    role: "default" | "creator" | "business" = "default",
+  ) => {
     const demoProfiles = {
       default: {
-        id: 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11',
-        username: 'brian_kimani',
-        full_name: 'Brian Kimani',
-        avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+        id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+        username: "brian_kimani",
+        full_name: "Brian Kimani",
+        avatar_url:
+          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
         is_online: true,
         last_seen: new Date().toISOString(),
-        bio: '✨ Exploring the future of social apps on HeyLook!',
+        bio: "✨ Exploring the future of social apps on HeyLook!",
         followers_count: 1420,
         following_count: 380,
         posts_count: 24,
       },
       creator: {
-        id: 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22',
-        username: 'sara_design',
-        full_name: 'Sara Chen',
-        avatar_url: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200',
+        id: "b0eebc99-9c0b-4ef8-bb6d-6bb9bd380a22",
+        username: "sara_design",
+        full_name: "Sara Chen",
+        avatar_url:
+          "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200",
         is_online: true,
         last_seen: new Date().toISOString(),
-        bio: '🎨 Digital Creator & Storyteller • 📍 Nairobi / Tokyo',
+        bio: "🎨 Digital Creator & Storyteller • 📍 Nairobi / Tokyo",
         followers_count: 28500,
         following_count: 410,
         posts_count: 182,
+      },
+      business: {
+        id: "c0eebc99-9c0b-4ef8-bb6d-6bb9bd380a33",
+        username: "zeel_ventures",
+        full_name: "Zeel Ventures",
+        avatar_url:
+          "https://images.unsplash.com/photo-1560250097-0b93528c311a?w=200",
+        is_online: true,
+        last_seen: new Date().toISOString(),
+        bio: "💼 Business Commander • Strategic Partnerships",
+        followers_count: 5200,
+        following_count: 96,
+        posts_count: 64,
       },
     };
 
@@ -302,8 +361,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   const oauthButtons = [
     {
-      id: 'google' as OAuthProvider,
-      name: 'Google',
+      id: "google" as OAuthProvider,
+      name: "Google",
       icon: (
         <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
           <path
@@ -326,14 +385,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       ),
     },
     {
-      id: 'github' as OAuthProvider,
-      name: 'GitHub',
+      id: "github" as OAuthProvider,
+      name: "GitHub",
       icon: <Github className="w-4 h-4 text-slate-100 shrink-0" />,
     },
     {
-      id: 'facebook' as OAuthProvider,
-      name: 'Facebook',
-      icon: <Facebook className="w-4 h-4 text-blue-500 fill-current shrink-0" />,
+      id: "facebook" as OAuthProvider,
+      name: "Facebook",
+      icon: (
+        <Facebook className="w-4 h-4 text-blue-500 fill-current shrink-0" />
+      ),
     },
   ];
 
@@ -341,7 +402,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     <div
       onMouseMove={handleMouseMove}
       className={`min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-center items-center p-4 lg:p-8 overflow-hidden relative transition-colors duration-300 ${
-        !isDark ? 'light-mode-override' : ''
+        !isDark ? "light-mode-override" : ""
       }`}
     >
       {/* Mouse-Reactive Ambient Background Aura */}
@@ -360,10 +421,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           onClick={onToggleTheme}
           className={`p-2.5 rounded-full transition-all shadow-sm flex items-center justify-center ${
             isDark
-              ? 'bg-slate-900/80 hover:bg-slate-800 text-amber-400 border border-slate-700/60'
-              : 'bg-slate-900/80 hover:bg-slate-800 text-amber-400 border border-slate-700/60'
+              ? "bg-slate-900/80 hover:bg-slate-800 text-amber-400 border border-slate-700/60"
+              : "bg-slate-900/80 hover:bg-slate-800 text-amber-400 border border-slate-700/60"
           }`}
-          title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
         >
           {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
         </button>
@@ -371,25 +432,28 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
       {/* Main 2-Column Responsive Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 max-w-6xl w-full items-center z-10 py-6">
-        
         {/* LEFT COLUMN: Interactive 3-Slide Feature Carousel (lg:col-span-7) */}
         <div className="lg:col-span-7 flex flex-col justify-between space-y-6 px-2 sm:px-4">
-          
           {/* Top Brand Header Tagline */}
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-gradient-to-r from-cyan-500/10 to-indigo-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-semibold mb-4 backdrop-blur-md">
-              <Compass className="w-3.5 h-3.5 animate-spin" style={{ animationDuration: '10s' }} />
+              <Compass
+                className="w-3.5 h-3.5 animate-spin"
+                style={{ animationDuration: "10s" }}
+              />
               <span>Nautical Matrix • Next-Gen Communication</span>
             </div>
 
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black tracking-tight leading-tight text-white">
-              Experience the next evolution of{' '}
+              Experience the next evolution of{" "}
               <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-indigo-400 to-pink-500">
                 real-time communication.
               </span>
             </h1>
             <p className="text-slate-400 text-sm sm:text-base mt-2 max-w-lg font-medium">
-              One unified workspace seamlessly merging status matrixes, instant messaging with nautical delivery vectors, and rich interactive social feeds.
+              One unified workspace seamlessly merging status matrixes, instant
+              messaging with nautical delivery vectors, and rich interactive
+              social feeds.
             </p>
           </div>
 
@@ -413,8 +477,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <Compass className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-base text-white">Nautical Presence Engine</h3>
-                        <p className="text-xs text-slate-400">Real-time activity matrix & custom focus states</p>
+                        <h3 className="font-bold text-base text-white">
+                          Nautical Presence Engine
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Real-time activity matrix & custom focus states
+                        </p>
                       </div>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
@@ -425,7 +493,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   {/* Visual Radar Matrix Simulation */}
                   <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 flex items-center justify-around relative overflow-hidden">
                     <div className="absolute inset-0 flex items-center justify-center opacity-20 pointer-events-none">
-                      <div className="w-40 h-40 rounded-full border border-cyan-500 animate-ping" style={{ animationDuration: '3s' }} />
+                      <div
+                        className="w-40 h-40 rounded-full border border-cyan-500 animate-ping"
+                        style={{ animationDuration: "3s" }}
+                      />
                       <div className="w-24 h-24 rounded-full border border-cyan-400" />
                     </div>
 
@@ -439,7 +510,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-cyan-400 ring-2 ring-slate-950" />
                       </div>
                       <div>
-                        <span className="font-bold text-xs text-white block">Sara Chen</span>
+                        <span className="font-bold text-xs text-white block">
+                          Sara Chen
+                        </span>
                         <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-semibold border border-cyan-500/30 mt-0.5">
                           <Anchor className="w-3 h-3 text-cyan-400" /> In Focus
                         </span>
@@ -458,7 +531,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-amber-400 ring-2 ring-slate-950" />
                       </div>
                       <div>
-                        <span className="font-bold text-xs text-slate-200 block">Alex Rivera</span>
+                        <span className="font-bold text-xs text-slate-200 block">
+                          Alex Rivera
+                        </span>
                         <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-semibold border border-amber-500/30 mt-0.5">
                           <Waves className="w-3 h-3 text-amber-400" /> Adrift
                         </span>
@@ -483,8 +558,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <Send className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-base text-white">Metaphoric Delivery Mechanics</h3>
-                        <p className="text-xs text-slate-400">Granular 3-stage delivery & receipt state machine</p>
+                        <h3 className="font-bold text-base text-white">
+                          Metaphoric Delivery Mechanics
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Granular 3-stage delivery & receipt state machine
+                        </p>
                       </div>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">
@@ -498,24 +577,36 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       <div className="w-7 h-7 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center mx-auto text-xs font-bold">
                         ⛵
                       </div>
-                      <span className="text-[11px] font-bold text-cyan-300 block">Launched</span>
-                      <span className="text-[9px] text-slate-400 block leading-tight">Sent from device</span>
+                      <span className="text-[11px] font-bold text-cyan-300 block">
+                        Launched
+                      </span>
+                      <span className="text-[9px] text-slate-400 block leading-tight">
+                        Sent from device
+                      </span>
                     </div>
 
                     <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-center space-y-1">
                       <div className="w-7 h-7 rounded-full bg-indigo-500/20 text-indigo-400 flex items-center justify-center mx-auto text-xs font-bold">
                         ⚓
                       </div>
-                      <span className="text-[11px] font-bold text-indigo-300 block">Docked</span>
-                      <span className="text-[9px] text-slate-400 block leading-tight">Delivered to harbor</span>
+                      <span className="text-[11px] font-bold text-indigo-300 block">
+                        Docked
+                      </span>
+                      <span className="text-[9px] text-slate-400 block leading-tight">
+                        Delivered to harbor
+                      </span>
                     </div>
 
                     <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800 text-center space-y-1">
                       <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mx-auto text-xs font-bold">
                         🌊
                       </div>
-                      <span className="text-[11px] font-bold text-emerald-300 block">Submerged</span>
-                      <span className="text-[9px] text-slate-400 block leading-tight">Read in viewport</span>
+                      <span className="text-[11px] font-bold text-emerald-300 block">
+                        Submerged
+                      </span>
+                      <span className="text-[9px] text-slate-400 block leading-tight">
+                        Read in viewport
+                      </span>
                     </div>
                   </div>
                 </motion.div>
@@ -536,8 +627,12 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <Sparkles className="w-5 h-5" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-base text-white">Dynamic 6-State Emoji Stream</h3>
-                        <p className="text-xs text-slate-400">Interactive reaction picker with consensus counts</p>
+                        <h3 className="font-bold text-base text-white">
+                          Dynamic 6-State Emoji Stream
+                        </h3>
+                        <p className="text-xs text-slate-400">
+                          Interactive reaction picker with consensus counts
+                        </p>
                       </div>
                     </div>
                     <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-pink-500/10 text-pink-400 border border-pink-500/20">
@@ -548,12 +643,42 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   {/* Floating Glassmorphic Reaction Bar Simulation */}
                   <div className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
                     <div className="flex items-center justify-around bg-slate-900/90 p-2 rounded-2xl border border-slate-800 shadow-lg">
-                      <span className="text-lg hover:scale-125 transition-transform cursor-pointer" title="Like">👍</span>
-                      <span className="text-lg hover:scale-125 transition-transform cursor-pointer" title="Love">❤️</span>
-                      <span className="text-lg hover:scale-125 transition-transform cursor-pointer" title="Insight">💡</span>
-                      <span className="text-lg hover:scale-125 transition-transform cursor-pointer" title="Anchored">⚓</span>
-                      <span className="text-lg hover:scale-125 transition-transform cursor-pointer" title="Wave">🌊</span>
-                      <span className="text-lg hover:scale-125 transition-transform cursor-pointer" title="Fire">🔥</span>
+                      <span
+                        className="text-lg hover:scale-125 transition-transform cursor-pointer"
+                        title="Like"
+                      >
+                        👍
+                      </span>
+                      <span
+                        className="text-lg hover:scale-125 transition-transform cursor-pointer"
+                        title="Love"
+                      >
+                        ❤️
+                      </span>
+                      <span
+                        className="text-lg hover:scale-125 transition-transform cursor-pointer"
+                        title="Insight"
+                      >
+                        💡
+                      </span>
+                      <span
+                        className="text-lg hover:scale-125 transition-transform cursor-pointer"
+                        title="Anchored"
+                      >
+                        ⚓
+                      </span>
+                      <span
+                        className="text-lg hover:scale-125 transition-transform cursor-pointer"
+                        title="Wave"
+                      >
+                        🌊
+                      </span>
+                      <span
+                        className="text-lg hover:scale-125 transition-transform cursor-pointer"
+                        title="Fire"
+                      >
+                        🔥
+                      </span>
                     </div>
 
                     <div className="flex items-center justify-between text-xs text-slate-400 px-1">
@@ -561,7 +686,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
                         Live Post Reactions Stream
                       </span>
-                      <span className="font-mono text-[11px] text-cyan-300">142 reactions • 18 reshares</span>
+                      <span className="font-mono text-[11px] text-cyan-300">
+                        142 reactions • 18 reshares
+                      </span>
                     </div>
                   </div>
                 </motion.div>
@@ -576,7 +703,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     key={idx}
                     onClick={() => setActiveSlide(idx)}
                     className={`h-2 rounded-full transition-all duration-300 ${
-                      activeSlide === idx ? 'w-8 bg-cyan-400' : 'w-2 bg-slate-700 hover:bg-slate-600'
+                      activeSlide === idx
+                        ? "w-8 bg-cyan-400"
+                        : "w-2 bg-slate-700 hover:bg-slate-600"
                     }`}
                     title={`Go to Slide ${idx + 1}`}
                   />
@@ -585,13 +714,19 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
               <div className="flex items-center gap-1">
                 <button
-                  onClick={() => setActiveSlide((prev) => (prev === 0 ? totalSlides - 1 : prev - 1))}
+                  onClick={() =>
+                    setActiveSlide((prev) =>
+                      prev === 0 ? totalSlides - 1 : prev - 1,
+                    )
+                  }
                   className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => setActiveSlide((prev) => (prev + 1) % totalSlides)}
+                  onClick={() =>
+                    setActiveSlide((prev) => (prev + 1) % totalSlides)
+                  }
                   className="p-1.5 rounded-lg bg-slate-800 text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
                 >
                   <ChevronRight className="w-4 h-4" />
@@ -599,7 +734,6 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </div>
             </div>
           </div>
-
         </div>
 
         {/* RIGHT COLUMN: Glassmorphic Auth Card (lg:col-span-5) */}
@@ -622,7 +756,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </div>
 
               <h2 className="text-2xl font-extrabold tracking-tight mb-1 text-white">
-                Welcome to{' '}
+                Welcome to{" "}
                 <span className="bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-indigo-400 to-pink-500">
                   HeyLook
                 </span>
@@ -638,14 +772,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setAuthMode('signin');
+                  setAuthMode("signin");
                   setFormError(null);
                   setFormSuccess(null);
                 }}
                 className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 ${
-                  authMode === 'signin'
-                    ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20'
-                    : 'text-slate-400 hover:text-slate-200'
+                  authMode === "signin"
+                    ? "bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20"
+                    : "text-slate-400 hover:text-slate-200"
                 }`}
               >
                 <KeyRound className="w-3.5 h-3.5" />
@@ -655,14 +789,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  setAuthMode('signup');
+                  setAuthMode("signup");
                   setFormError(null);
                   setFormSuccess(null);
                 }}
                 className={`flex-1 py-2 text-xs font-bold rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center gap-1.5 ${
-                  authMode === 'signup'
-                    ? 'bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20'
-                    : 'text-slate-400 hover:text-slate-200'
+                  authMode === "signup"
+                    ? "bg-gradient-to-r from-cyan-500 to-indigo-600 text-white shadow-md shadow-cyan-500/20"
+                    : "text-slate-400 hover:text-slate-200"
                 }`}
               >
                 <User className="w-3.5 h-3.5" />
@@ -697,7 +831,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             {showConfigNotice && (
               <motion.div
                 initial={{ height: 0, opacity: 0 }}
-                animate={{ height: 'auto', opacity: 1 }}
+                animate={{ height: "auto", opacity: 1 }}
                 className="mb-4 p-3 rounded-2xl text-xs space-y-2 border bg-indigo-950/40 border-indigo-800/60 text-indigo-200"
               >
                 <div className="flex items-start gap-2">
@@ -705,7 +839,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <div>
                     <p className="font-semibold">OAuth Connection Info</p>
                     <p className="mt-0.5 opacity-90">
-                      {authError || 'OAuth authorization requested. You can enter via Demo Mode or Email login below.'}
+                      {authError ||
+                        "OAuth authorization requested. You can enter via Demo Mode or Email login below."}
                     </p>
                   </div>
                 </div>
@@ -714,7 +849,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
             {/* Native Email and Password Form */}
             <form onSubmit={handleEmailAuth} className="space-y-3.5">
-              {authMode === 'signup' && (
+              {authMode === "signup" && (
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-300 uppercase tracking-wider mb-1">
                     Full Name / Display Name
@@ -726,7 +861,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
                       className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-950/90 border border-slate-800 focus:border-cyan-400 focus:outline-none text-xs text-slate-100 placeholder:text-slate-600 transition-all"
-                      required={authMode === 'signup'}
+                      required={authMode === "signup"}
                     />
                     <User className="w-4 h-4 text-slate-500 absolute left-3 top-3" />
                   </div>
@@ -756,7 +891,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </label>
                 <div className="relative">
                   <input
-                    type={showPassword ? 'text' : 'password'}
+                    type={showPassword ? "text" : "password"}
                     placeholder="••••••••••••"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -769,7 +904,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     onClick={() => setShowPassword(!showPassword)}
                     className="absolute right-3 top-2.5 text-slate-500 hover:text-slate-300 transition-colors"
                   >
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    {showPassword ? (
+                      <EyeOff className="w-4 h-4" />
+                    ) : (
+                      <Eye className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -783,7 +922,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 ) : (
                   <>
-                    <span>{authMode === 'signup' ? 'Create Account' : 'Sign In'}</span>
+                    <span>
+                      {authMode === "signup" ? "Create Account" : "Sign In"}
+                    </span>
                     <ArrowRight className="w-4 h-4" />
                   </>
                 )}
@@ -800,7 +941,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   <button
                     key={btn.id}
                     type="button"
-                    onClick={() => handleOAuthSignIn(btn.id)}
+                    onClick={() =>
+                      btn.id === "google"
+                        ? handleGoogleLogin()
+                        : handleOAuthSignIn(btn.id)
+                    }
                     disabled={loadingProvider !== null}
                     className="py-2 px-3 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-cyan-500/50 hover:bg-slate-900 text-slate-300 transition-all flex items-center justify-center gap-1.5 text-xs font-medium cursor-pointer"
                   >
@@ -823,7 +968,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
             <button
               type="button"
-              onClick={() => handleGuestDemoLogin('default')}
+              onClick={() => handleGuestDemoLogin("default")}
               className="w-full py-2.5 px-4 rounded-2xl font-semibold text-xs transition-all flex items-center justify-center gap-2 border bg-gradient-to-r from-cyan-950/40 via-indigo-950/40 to-purple-950/40 border-cyan-800/50 text-cyan-200 hover:bg-cyan-900/60 shadow-md cursor-pointer"
             >
               <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
@@ -848,10 +993,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             </div>
           </motion.div>
         </div>
-
       </div>
     </div>
   );
 };
-
-

@@ -1,38 +1,65 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Plus, Anchor, Users, MessageSquarePlus, X, Radio, RadioReceiver, Sparkles } from 'lucide-react';
-import { Conversation, ChatMessage, Profile, Beacon, BeaconComment } from '../../types';
-import { ChatView } from '../ChatView';
-import { usePresence } from '../../hooks/usePresence';
-import { chatService } from '../../services/chatService';
-import { formatConversationTime, formatNauticalPresence } from '../../utils/formatTime';
-import { BeaconModal } from '../BeaconModal';
-import { BeaconViewer } from '../BeaconViewer';
-import { ContactRosterModal } from '../ContactRosterModal';
-import { HymliAiButton } from '../HymliAiButton';
-import { supabase } from '../../lib/supabase';
+import React, { useState, useEffect } from "react";
+import {
+  Search,
+  Plus,
+  Anchor,
+  Users,
+  MessageSquarePlus,
+  X,
+  Radio,
+  RadioReceiver,
+  Sparkles,
+} from "lucide-react";
+import {
+  Conversation,
+  ChatMessage,
+  Profile,
+  Beacon,
+  BeaconComment,
+} from "../../types";
+import { ChatView } from "../ChatView";
+import { usePresence } from "../../hooks/usePresence";
+import {
+  useTypingIndicator,
+  getCustomTypingPhrase,
+} from "../../hooks/useTypingIndicator";
+import { chatService } from "../../services/chatService";
+import {
+  formatConversationTime,
+  formatNauticalPresence,
+} from "../../utils/formatTime";
+import { BeaconModal } from "../BeaconModal";
+import { BeaconViewer } from "../BeaconViewer";
+import { ContactRosterModal } from "../ContactRosterModal";
+import { HymliAiButton } from "../HymliAiButton";
+import { supabase } from "../../lib/supabase";
+import { WebRTCState } from "../../hooks/useWebRTCCall";
 
 interface ChatsTabProps {
   currentUser: Profile;
   isDark: boolean;
+  webrtc?: WebRTCState;
 }
 
-export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
+export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark, webrtc }) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [registeredProfiles, setRegisteredProfiles] = useState<Profile[]>([]);
-  const [selectedConvId, setSelectedConvId] = useState<string>('');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedConvId, setSelectedConvId] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
 
   // Beacon Modal & Viewer State
   const [isBeaconModalOpen, setIsBeaconModalOpen] = useState(false);
   const [isBeaconViewerOpen, setIsBeaconViewerOpen] = useState(false);
-  const [selectedBeaconProfileId, setSelectedBeaconProfileId] = useState<string>('');
+  const [selectedBeaconProfileId, setSelectedBeaconProfileId] =
+    useState<string>("");
   const [beacons, setBeacons] = useState<Beacon[]>([]);
 
   // Nautical presence hook for currentUser
-  const currentUserId = currentUser?.id || '';
+  const currentUserId = currentUser?.id || "";
   const { isUserOnline, onlinePresences } = usePresence(currentUserId);
+  const { isUserTyping } = useTypingIndicator();
 
   // Load real Supabase database conversations, profiles, & beacons
   useEffect(() => {
@@ -42,29 +69,31 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
     const loadRealBackendData = async () => {
       setIsLoading(true);
       try {
-        const [convs, profiles, beaconsResult, viewsResult] = await Promise.all([
-          chatService.fetchConversations(currentUserId).catch(() => []),
-          chatService.fetchAllProfiles(currentUserId).catch(() => []),
-          (async () => {
-            try {
-              return await supabase.from('beacons').select('*');
-            } catch {
-              return { data: [], error: null };
-            }
-          })(),
-          (async () => {
-            try {
-              return await supabase.from('beacon_views').select('*');
-            } catch {
-              return { data: [], error: null };
-            }
-          })(),
-        ]);
+        const [convs, profiles, beaconsResult, viewsResult] = await Promise.all(
+          [
+            chatService.fetchConversations(currentUserId).catch(() => []),
+            chatService.fetchAllProfiles(currentUserId).catch(() => []),
+            (async () => {
+              try {
+                return await supabase.from("beacons").select("*");
+              } catch {
+                return { data: [], error: null };
+              }
+            })(),
+            (async () => {
+              try {
+                return await supabase.from("beacon_views").select("*");
+              } catch {
+                return { data: [], error: null };
+              }
+            })(),
+          ],
+        );
 
         const viewedBeaconSet = new Set(
           viewsResult && viewsResult.data && Array.isArray(viewsResult.data)
             ? viewsResult.data.map((v: any) => v.beacon_id || v.id)
-            : []
+            : [],
         );
 
         if (isMounted) {
@@ -74,41 +103,61 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
             setSelectedConvId(convs[0].id);
           }
 
-          if (beaconsResult && beaconsResult.data && beaconsResult.data.length > 0) {
-            const fetchedBeacons: Beacon[] = beaconsResult.data.map((row: any) => {
-              const hasViewedInDb = viewedBeaconSet.has(row.id);
-              const hasViewedInArray = Array.isArray(row.viewed_by) && row.viewed_by.includes(currentUserId);
-              const viewedByList: string[] = (hasViewedInDb || hasViewedInArray) ? [currentUserId] : [];
+          if (
+            beaconsResult &&
+            beaconsResult.data &&
+            beaconsResult.data.length > 0
+          ) {
+            const fetchedBeacons: Beacon[] = beaconsResult.data.map(
+              (row: any) => {
+                const hasViewedInDb = viewedBeaconSet.has(row.id);
+                const hasViewedInArray =
+                  Array.isArray(row.viewed_by) &&
+                  row.viewed_by.includes(currentUserId);
+                const viewedByList: string[] =
+                  hasViewedInDb || hasViewedInArray ? [currentUserId] : [];
 
-              return {
-                id: row.id || `beacon_${Date.now()}_${Math.random()}`,
-                user_id: row.user_id,
-                author: {
-                  name: row.author_name || row.profiles?.full_name || row.profiles?.username || 'Harbor User',
-                  avatar: row.author_avatar || row.profiles?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
-                  username: row.author_username || row.profiles?.username,
-                },
-                media_type: row.media_type || row.format || 'text',
-                content_url: row.content_url || row.media_url,
-                text_content: row.text_content || row.caption,
-                bg_gradient: row.bg_gradient || row.bg_aura,
-                custom_hex: row.custom_hex,
-                font_family: row.font_family,
-                font_size: row.font_size,
-                created_at: row.created_at || new Date().toISOString(),
-                expires_at: row.expires_at || new Date(Date.now() + 86400000).toISOString(),
-                ttl_setting: row.ttl_setting || '24h',
-                allow_public_comments: row.allow_public_comments !== false,
-                is_one_time: row.is_one_time === true,
-                viewed_by: viewedByList,
-                comments: row.comments || [],
-              };
-            });
+                return {
+                  id: row.id || `beacon_${Date.now()}_${Math.random()}`,
+                  user_id: row.user_id,
+                  author: {
+                    name:
+                      row.author_name ||
+                      row.profiles?.full_name ||
+                      row.profiles?.username ||
+                      "Harbor User",
+                    avatar:
+                      row.author_avatar ||
+                      row.profiles?.avatar_url ||
+                      "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
+                    username: row.author_username || row.profiles?.username,
+                  },
+                  media_type: row.media_type || row.format || "text",
+                  content_url: row.content_url || row.media_url,
+                  text_content: row.text_content || row.caption,
+                  bg_gradient: row.bg_gradient || row.bg_aura,
+                  custom_hex: row.custom_hex,
+                  font_family: row.font_family,
+                  font_size: row.font_size,
+                  created_at: row.created_at || new Date().toISOString(),
+                  expires_at:
+                    row.expires_at ||
+                    new Date(Date.now() + 86400000).toISOString(),
+                  ttl_setting: row.ttl_setting || "24h",
+                  allow_public_comments: row.allow_public_comments !== false,
+                  is_one_time: row.is_one_time === true,
+                  viewed_by: viewedByList,
+                  comments: row.comments || [],
+                };
+              },
+            );
 
             // Merge fetched Supabase beacons with existing initial beacons
             setBeacons((prev) => {
               const existingIds = new Set(prev.map((b) => b.id));
-              const newItems = fetchedBeacons.filter((b) => !existingIds.has(b.id));
+              const newItems = fetchedBeacons.filter(
+                (b) => !existingIds.has(b.id),
+              );
               return [...newItems, ...prev];
             });
           }
@@ -116,7 +165,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
           setIsLoading(false);
         }
       } catch (err) {
-        console.error('Error loading backend data:', err);
+        console.error("Error loading backend data:", err);
         if (isMounted) {
           setIsLoading(false);
         }
@@ -128,7 +177,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
     // Subscribe to realtime beacon broadcasts if table exists
     const existingBeaconChannels = supabase.getChannels();
     existingBeaconChannels.forEach((ch) => {
-      if (ch.topic.includes('beacons_realtime')) {
+      if (ch.topic.includes("beacons_realtime")) {
         supabase.removeChannel(ch);
       }
     });
@@ -136,40 +185,105 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
     const beaconChannelName = `beacons_realtime_${Math.random().toString(36).substring(2, 9)}`;
     const beaconChannel = supabase
       .channel(beaconChannelName)
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'beacons' }, (payload) => {
-        if (!isMounted) return;
-        const row = payload.new;
-        if (row) {
-          const newBeacon: Beacon = {
-            id: row.id,
-            user_id: row.user_id,
-            author: {
-              name: row.author_name || 'Harbor Member',
-              avatar: row.author_avatar || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
-            },
-            media_type: row.media_type || 'text',
-            content_url: row.content_url,
-            text_content: row.text_content,
-            bg_gradient: row.bg_gradient,
-            custom_hex: row.custom_hex,
-            font_family: row.font_family,
-            font_size: row.font_size,
-            created_at: row.created_at || new Date().toISOString(),
-            expires_at: row.expires_at || new Date(Date.now() + 86400000).toISOString(),
-            ttl_setting: row.ttl_setting || '24h',
-            allow_public_comments: row.allow_public_comments !== false,
-            is_one_time: row.is_one_time === true,
-            viewed_by: [],
-            comments: [],
-          };
-          setBeacons((prev) => [newBeacon, ...prev]);
-        }
-      })
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "beacons" },
+        (payload) => {
+          if (!isMounted) return;
+          const row = payload.new;
+          if (row) {
+            const newBeacon: Beacon = {
+              id: row.id,
+              user_id: row.user_id,
+              author: {
+                name: row.author_name || "Harbor Member",
+                avatar:
+                  row.author_avatar ||
+                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
+              },
+              media_type: row.media_type || "text",
+              content_url: row.content_url,
+              text_content: row.text_content,
+              bg_gradient: row.bg_gradient,
+              custom_hex: row.custom_hex,
+              font_family: row.font_family,
+              font_size: row.font_size,
+              created_at: row.created_at || new Date().toISOString(),
+              expires_at:
+                row.expires_at || new Date(Date.now() + 86400000).toISOString(),
+              ttl_setting: row.ttl_setting || "24h",
+              allow_public_comments: row.allow_public_comments !== false,
+              is_one_time: row.is_one_time === true,
+              viewed_by: [],
+              comments: [],
+            };
+            setBeacons((prev) => [newBeacon, ...prev]);
+          }
+        },
+      )
+      .subscribe();
+
+// ---- REAL-TIME MESSAGES: keep sidebar conversation list in sync ----
+    // Subscribes to any INSERT on the messages table and refreshes the
+    // conversation list so both the sender and the receiver see the new
+    // message preview + reordered list instantly, even when the chat is not
+    // actively open.
+    const messagesChannel = supabase
+      .channel(`messages_realtime_${Math.random().toString(36).substring(2, 9)}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          if (!isMounted) return;
+          const row = payload.new as any;
+          if (!row) return;
+
+          // Only react to messages involving the current user.
+          const isMine = row.sender_id === currentUserId;
+          const isForMe = row.receiver_id === currentUserId;
+          if (!isMine && !isForMe) return;
+
+          // Determine which conversation this message belongs to.
+          const otherUserId = isMine ? row.receiver_id : row.sender_id;
+          const convId = row.room_id || `conv_${otherUserId}`;
+
+          const text =
+            (row.text as string) ||
+            (row.type === "image"
+              ? "🖼️ Photo"
+              : row.type === "voice"
+                ? "🎤 Voice note"
+                : "New message");
+
+          const createdAt = row.created_at || new Date().toISOString();
+
+          setConversations((prev) => {
+            const list = prev || [];
+            const existing = list.find((c) => c.id === convId);
+            if (!existing) return list;
+
+            const updated: Conversation = {
+              ...existing,
+              lastMessage: text,
+              lastMessageTime: formatConversationTime(createdAt),
+              last_message_at: createdAt,
+              unreadCount: isForMe
+                ? (existing.unreadCount || 0) + 1
+                : existing.unreadCount || 0,
+            };
+
+            // Move the touched conversation to the top of the list.
+            const rest = list.filter((c) => c.id !== convId);
+            return [updated, ...rest];
+          });
+        },
+      )
       .subscribe();
 
     return () => {
       isMounted = false;
       supabase.removeChannel(beaconChannel);
+      supabase.removeChannel(messagesChannel);
     };
   }, [currentUserId]);
 
@@ -177,9 +291,12 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
     return (
       <div className="h-[calc(100vh-8rem)] flex flex-col items-center justify-center p-6 text-center text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 space-y-3">
         <Anchor className="w-10 h-10 text-cyan-400 animate-spin" />
-        <h3 className="text-base font-bold text-slate-900 dark:text-slate-200">Initializing User Session...</h3>
+        <h3 className="text-base font-bold text-slate-900 dark:text-slate-200">
+          Initializing User Session...
+        </h3>
         <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm">
-          Connecting to Supabase realtime engine and validating authentication status.
+          Connecting to Supabase realtime engine and validating authentication
+          status.
         </p>
       </div>
     );
@@ -187,13 +304,21 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
 
   const safeConversations = conversations || [];
   const safeRegisteredProfiles = registeredProfiles || [];
-  const activeConv = safeConversations.find((c) => c?.id === selectedConvId) || safeConversations[0] || null;
+  const activeConv =
+    safeConversations.find((c) => c?.id === selectedConvId) ||
+    safeConversations[0] ||
+    null;
 
   // Active unexpired Beacons
-  const activeBeacons = beacons.filter((b) => new Date(b.expires_at).getTime() > Date.now());
+  const activeBeacons = beacons.filter(
+    (b) => new Date(b.expires_at).getTime() > Date.now(),
+  );
 
   // Derive unique profiles/authors that currently have active beacons
-  const beaconProfilesMap = new Map<string, { id: string; name: string; avatar: string }>();
+  const beaconProfilesMap = new Map<
+    string,
+    { id: string; name: string; avatar: string }
+  >();
   activeBeacons.forEach((b) => {
     if (!beaconProfilesMap.has(b.user_id)) {
       beaconProfilesMap.set(b.user_id, {
@@ -207,7 +332,10 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
 
   const isProfileBeaconViewed = (userId: string) => {
     const userBeacons = activeBeacons.filter((b) => b.user_id === userId);
-    return userBeacons.length > 0 && userBeacons.every((b) => b.viewed_by?.includes(currentUser.id));
+    return (
+      userBeacons.length > 0 &&
+      userBeacons.every((b) => b.viewed_by?.includes(currentUser.id))
+    );
   };
 
   const handleCreateBeacon = (newBeacon: Beacon) => {
@@ -224,7 +352,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
           };
         }
         return b;
-      })
+      }),
     );
   };
 
@@ -238,7 +366,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
           };
         }
         return b;
-      })
+      }),
     );
   };
 
@@ -251,40 +379,51 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
     ? activeBeacons.filter((b) => b.user_id === selectedBeaconProfileId)
     : activeBeacons;
 
-  const handleUpdateConversation = (convId: string, lastMsgText: string, newMsg?: ChatMessage, cleared?: boolean) => {
+  const handleUpdateConversation = (
+    convId: string,
+    lastMsgText: string,
+    newMsg?: ChatMessage,
+    cleared?: boolean,
+  ) => {
     setConversations((prev) =>
       (prev || []).map((c) => {
         if (c.id === convId) {
           if (cleared) {
             return {
               ...c,
-              lastMessage: '',
-              lastMessageTime: '',
+              lastMessage: "",
+              lastMessageTime: "",
               last_message_at: undefined,
               messages: [],
             };
           }
           const existingMsgs = c.messages || [];
-          const updatedMessages = newMsg ? [...existingMsgs, newMsg] : existingMsgs;
+          const updatedMessages = newMsg
+            ? [...existingMsgs, newMsg]
+            : existingMsgs;
           const latest = updatedMessages[updatedMessages.length - 1];
           const hasMsgs = updatedMessages.length > 0;
           const msgTimestamp = newMsg?.created_at || latest?.created_at;
           return {
             ...c,
-            lastMessage: lastMsgText || (latest ? latest.text : ''),
-            lastMessageTime: msgTimestamp ? formatConversationTime(msgTimestamp) : '',
+            lastMessage: lastMsgText || (latest ? latest.text : ""),
+            lastMessageTime: msgTimestamp
+              ? formatConversationTime(msgTimestamp)
+              : "",
             last_message_at: msgTimestamp,
             messages: updatedMessages,
           };
         }
         return c;
-      })
+      }),
     );
   };
 
   const handleStartNewChatWithProfile = (targetProfile: Profile) => {
     if (!targetProfile) return;
-    const existing = safeConversations.find((c) => c?.user?.id === targetProfile.id);
+    const existing = safeConversations.find(
+      (c) => c?.user?.id === targetProfile.id,
+    );
     if (existing) {
       setSelectedConvId(existing.id);
     } else {
@@ -293,14 +432,16 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
         id: `conv_${targetProfile.id}`,
         user: {
           id: targetProfile.id,
-          name: targetProfile.full_name || targetProfile.username || 'User',
-          avatar: targetProfile.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200',
+          name: targetProfile.full_name || targetProfile.username || "User",
+          avatar:
+            targetProfile.avatar_url ||
+            "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
           is_online: targetProfile.is_online,
-          nautical_presence: targetProfile.nautical_presence || 'in_focus',
+          nautical_presence: targetProfile.nautical_presence || "in_focus",
           last_anchored: targetProfile.last_anchored,
         },
-        lastMessage: '',
-        lastMessageTime: '',
+        lastMessage: "",
+        lastMessageTime: "",
         last_message_at: undefined,
         unreadCount: 0,
         messages: [],
@@ -311,8 +452,13 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
     setIsRosterModalOpen(false);
   };
 
-  const handleSelectHymliAiConversation = (convId: string, partnerProfile: Profile) => {
-    const existing = safeConversations.find((c) => c.id === convId || c.user?.id === partnerProfile.id);
+  const handleSelectHymliAiConversation = (
+    convId: string,
+    partnerProfile: Profile,
+  ) => {
+    const existing = safeConversations.find(
+      (c) => c.id === convId || c.user?.id === partnerProfile.id,
+    );
     if (existing) {
       setSelectedConvId(existing.id);
     } else {
@@ -323,11 +469,11 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
           name: partnerProfile.full_name,
           avatar: partnerProfile.avatar_url,
           is_online: true,
-          nautical_presence: 'In Focus',
-          custom_status: 'In Focus',
+          nautical_presence: "In Focus",
+          custom_status: "In Focus",
         },
-        lastMessage: 'Anchored and ready. How can I assist your fleet today?',
-        lastMessageTime: 'Just now',
+        lastMessage: "Anchored and ready. How can I assist your fleet today?",
+        lastMessageTime: "Just now",
         unreadCount: 0,
         messages: [],
       };
@@ -339,7 +485,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
   const filteredConversations = safeConversations.filter(
     (c) =>
       c?.user?.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      c?.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase())
+      c?.lastMessage?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   return (
@@ -347,7 +493,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
       {/* LEFT SIDEBAR: Conversation list */}
       <div
         className={`w-full md:w-80 lg:w-96 flex flex-col border-r border-slate-200 dark:border-slate-800 ${
-          selectedConvId && 'hidden md:flex'
+          selectedConvId && "hidden md:flex"
         }`}
       >
         {/* Header & Status bar */}
@@ -377,7 +523,8 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
                 Beacons
               </span>
               <span className="text-[10px] text-slate-400">
-                {activeBeacons.length} Active {activeBeacons.length === 1 ? 'Beacon' : 'Beacons'}
+                {activeBeacons.length} Active{" "}
+                {activeBeacons.length === 1 ? "Beacon" : "Beacons"}
               </span>
             </div>
 
@@ -409,8 +556,8 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
                     <div
                       className={`relative p-0.5 rounded-full transition-all group-hover:scale-105 ${
                         viewed
-                          ? 'ring-1 ring-slate-800 bg-slate-800'
-                          : 'ring-2 ring-cyan-400 animate-pulse bg-gradient-to-tr from-cyan-400 to-indigo-500'
+                          ? "ring-1 ring-slate-800 bg-slate-800"
+                          : "ring-2 ring-cyan-400 animate-pulse bg-gradient-to-tr from-cyan-400 to-indigo-500"
                       }`}
                     >
                       <img
@@ -456,7 +603,9 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
           {isLoading ? (
             <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center space-y-2">
               <Anchor className="w-8 h-8 text-cyan-400 animate-spin" />
-              <p className="text-xs font-mono">Syncing Supabase Nautical Stream...</p>
+              <p className="text-xs font-mono">
+                Syncing Supabase Nautical Stream...
+              </p>
             </div>
           ) : filteredConversations.length === 0 ? (
             <div className="p-6 text-center text-slate-400 flex flex-col items-center justify-center space-y-3 h-64">
@@ -464,7 +613,9 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
                 <Anchor className="w-8 h-8" />
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-300">No active anchors yet.</p>
+                <p className="text-sm font-semibold text-slate-300">
+                  No active anchors yet.
+                </p>
                 <p className="text-xs text-slate-400 mt-1 max-w-[240px]">
                   Select a contact from the roster to launch a conversation.
                 </p>
@@ -482,13 +633,22 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
               const isOnline = isUserOnline(conv.user.id);
               const hasMessages = Boolean(
                 (conv.messages && conv.messages.length > 0) ||
-                conv.last_message_at
+                conv.last_message_at,
               );
-              const lastTimestamp = conv.last_message_at || conv.messages?.[conv.messages.length - 1]?.created_at;
-              const displayTime = hasMessages ? (formatConversationTime(lastTimestamp) || conv.lastMessageTime) : '';
-              const displaySubtitle = hasMessages
-                ? (conv.lastMessage || conv.messages?.[conv.messages.length - 1]?.text || 'No messages yet')
-                : 'No messages yet';
+              const lastTimestamp =
+                conv.last_message_at ||
+                conv.messages?.[conv.messages.length - 1]?.created_at;
+const displayTime = hasMessages
+                ? formatConversationTime(lastTimestamp) || conv.lastMessageTime
+                : "";
+              const isTypingNow = isUserTyping(conv.user.id, conv.id);
+              const displaySubtitle = isTypingNow
+                ? getCustomTypingPhrase()
+                : hasMessages
+                  ? conv.lastMessage ||
+                    conv.messages?.[conv.messages.length - 1]?.text ||
+                    "No messages yet"
+                  : "No messages yet";
 
               return (
                 <button
@@ -497,9 +657,9 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
                   className={`w-full p-3.5 flex items-center gap-3 text-left transition-colors cursor-pointer ${
                     isSelected
                       ? isDark
-                        ? 'bg-slate-800/90'
-                        : 'bg-indigo-50/70'
-                      : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
+                        ? "bg-slate-800/90"
+                        : "bg-indigo-50/70"
+                      : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
                   }`}
                 >
                   <div className="relative shrink-0">
@@ -509,22 +669,37 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
                       className="w-12 h-12 rounded-full object-cover border border-slate-700"
                     />
                     <span
-                      title={formatNauticalPresence(isOnline, conv.user.last_seen || conv.user.last_anchored)}
+                      title={formatNauticalPresence(
+                        isOnline,
+                        conv.user.last_seen || conv.user.last_anchored,
+                      )}
                       className={`absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 ${
-                        isOnline ? 'bg-emerald-400 animate-pulse ring-2 ring-emerald-500/30' : 'bg-slate-500'
+                        isOnline
+                          ? "bg-emerald-400 animate-pulse ring-2 ring-emerald-500/30"
+                          : "bg-slate-500"
                       }`}
                     />
                   </div>
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">{conv.user.name}</span>
+                      <span className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">
+                        {conv.user.name}
+                      </span>
                       {hasMessages && displayTime ? (
-                        <span className="text-xs text-slate-400 shrink-0 ml-2">{displayTime}</span>
+                        <span className="text-xs text-slate-400 shrink-0 ml-2">
+                          {displayTime}
+                        </span>
                       ) : null}
                     </div>
                     <div className="flex items-center justify-between">
-                      <p className="text-xs text-slate-400 truncate">
+<p
+                        className={`text-xs truncate ${
+                          isTypingNow
+                            ? "text-cyan-500 dark:text-cyan-400 italic font-semibold"
+                            : "text-slate-400"
+                        }`}
+                      >
                         {displaySubtitle}
                       </p>
                       {conv.unreadCount > 0 && (
@@ -542,19 +717,24 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark }) => {
       </div>
 
       {/* RIGHT CHAT VIEW AREA */}
-      <div className={`flex-1 flex flex-col h-full ${!selectedConvId && 'hidden md:flex'}`}>
+      <div
+        className={`flex-1 flex flex-col h-full ${!selectedConvId && "hidden md:flex"}`}
+      >
         {activeConv && activeConv.user ? (
-          <ChatView
+<ChatView
             activeConv={activeConv}
             currentUser={currentUser}
             isDark={isDark}
-            onBack={() => setSelectedConvId('')}
+            onBack={() => setSelectedConvId("")}
             onUpdateConversation={handleUpdateConversation}
+            webrtc={webrtc}
           />
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center p-6 text-center text-slate-400 bg-slate-950/40 space-y-3">
             <Anchor className="w-12 h-12 text-cyan-500/60" />
-            <h3 className="text-base font-bold text-slate-200">No active anchors yet.</h3>
+            <h3 className="text-base font-bold text-slate-200">
+              No active anchors yet.
+            </h3>
             <p className="text-xs text-slate-400 max-w-sm">
               Select a contact from the roster to launch a conversation.
             </p>

@@ -1,30 +1,30 @@
-import { GoogleGenAI } from '@google/genai';
-import { supabase } from '../lib/supabase';
-import { ChatMessage, Profile } from '../types';
-import { ollamaService } from './ollamaService';
-import { chatService } from './chatService';
-
+import { GoogleGenAI } from "@google/genai";
+import { supabase } from "../lib/supabase";
+import { ChatMessage, Profile } from "../types";
+import { ollamaService } from "./ollamaService";
+import { chatService } from "./chatService";
 
 // Standard Hymli AI Bot Profile
-export const HYMLI_AI_BOT_ID = '00000000-0000-0000-0000-0000000000a1';
+export const HYMLI_AI_BOT_ID = "00000000-0000-0000-0000-0000000000a1";
 
 export const HYMLI_BOT_PROFILE: Profile = {
   id: HYMLI_AI_BOT_ID,
-  username: 'hymli_ai',
-  full_name: 'Hymli AI',
-  avatar_url: 'https://api.dicebear.com/7.x/bottts/svg?seed=HymliAI&backgroundColor=0284c7',
-  custom_status: 'In Focus',
-  bio: 'Executive Fleet Assistant AI - Charting optimal courses for your fleet.',
+  username: "hymli_ai",
+  full_name: "Hymli AI",
+  avatar_url:
+    "https://api.dicebear.com/7.x/bottts/svg?seed=HymliAI&backgroundColor=0284c7",
+  custom_status: "In Focus",
+  bio: "Executive Fleet Assistant AI - Charting optimal courses for your fleet.",
   is_online: true,
-  nautical_presence: 'In Focus',
+  nautical_presence: "In Focus",
   last_anchored: new Date().toISOString(),
 };
 
-export type AiProvider = 'gemini' | 'ollama';
+export type AiProvider = "gemini" | "ollama";
 
 class HymliAiService {
-  private activeProvider: AiProvider = 'gemini';
-  private activeModelId: string = 'gemini-2.5-flash';
+  private activeProvider: AiProvider = "gemini";
+  private activeModelId: string = "gemini-2.5-flash";
   private geminiClient: GoogleGenAI | null = null;
   private isSynthesizing = false;
 
@@ -34,16 +34,18 @@ class HymliAiService {
 
   private initGemini() {
     try {
+      // Prefer the Vite-exposed client-side variable (VITE_GEMINI_API_KEY from .env.local),
+      // with a fallback to a server-side GEMINI_API_KEY when available.
       const apiKey =
-        (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
         import.meta.env?.VITE_GEMINI_API_KEY ||
-        '';
+        (typeof process !== "undefined" && process.env?.GEMINI_API_KEY) ||
+        "";
 
       this.geminiClient = new GoogleGenAI({
-        apiKey: apiKey || 'dummy-key-for-initialization',
+        apiKey: apiKey || "dummy-key-for-initialization",
       });
     } catch (err) {
-      console.warn('[HymliAI] Gemini client initialization warning:', err);
+      console.warn("[HymliAI] Gemini client initialization warning:", err);
       this.geminiClient = null;
     }
   }
@@ -53,10 +55,10 @@ class HymliAiService {
    */
   public setModel(modelId: string): void {
     this.activeModelId = modelId;
-    if (modelId === 'llama-3.1-8b') {
-      this.activeProvider = 'ollama';
+    if (modelId === "llama-3.1-8b") {
+      this.activeProvider = "ollama";
     } else {
-      this.activeProvider = 'gemini';
+      this.activeProvider = "gemini";
     }
   }
 
@@ -85,7 +87,8 @@ class HymliAiService {
    * Toggle between Gemini and local Ollama provider
    */
   public toggleProvider(): AiProvider {
-    this.activeProvider = this.activeProvider === 'gemini' ? 'ollama' : 'gemini';
+    this.activeProvider =
+      this.activeProvider === "gemini" ? "ollama" : "gemini";
     return this.activeProvider;
   }
 
@@ -98,15 +101,17 @@ class HymliAiService {
     partner: Profile;
   }> {
     if (!currentUserId) {
-      throw new Error('Current user ID is required to get or create Hymli AI thread');
+      throw new Error(
+        "Current user ID is required to get or create Hymli AI thread",
+      );
     }
 
     try {
       // 1. Check if a conversation row exists with is_ai = true or title = 'Hymli AI'
       const { data: existingConvs, error: convErr } = await supabase
-        .from('conversations')
-        .select('*')
-        .eq('user_id', currentUserId)
+        .from("conversations")
+        .select("*")
+        .eq("user_id", currentUserId)
         .or(`is_ai.eq.true,title.eq.Hymli AI,partner_id.eq.${HYMLI_AI_BOT_ID}`)
         .limit(1);
 
@@ -120,10 +125,10 @@ class HymliAiService {
 
       // 2. Check if messages exist between currentUserId and HYMLI_AI_BOT_ID
       const { data: existingMsgs } = await supabase
-        .from('messages')
-        .select('id')
+        .from("messages")
+        .select("id")
         .or(
-          `and(sender_id.eq.${currentUserId},receiver_id.eq.${HYMLI_AI_BOT_ID}),and(sender_id.eq.${HYMLI_AI_BOT_ID},receiver_id.eq.${currentUserId})`
+          `and(sender_id.eq.${currentUserId},receiver_id.eq.${HYMLI_AI_BOT_ID}),and(sender_id.eq.${HYMLI_AI_BOT_ID},receiver_id.eq.${currentUserId})`,
         )
         .limit(1);
 
@@ -131,18 +136,18 @@ class HymliAiService {
 
       // 3. Insert or update conversation record
       const { data: insertedConv, error: insertErr } = await supabase
-        .from('conversations')
+        .from("conversations")
         .upsert(
           {
             id: convId,
             user_id: currentUserId,
             partner_id: HYMLI_AI_BOT_ID,
-            title: 'Hymli AI',
+            title: "Hymli AI",
             is_ai: true,
             is_auto_reply_enabled: true,
             updated_at: new Date().toISOString(),
           },
-          { onConflict: 'id' }
+          { onConflict: "id" },
         )
         .select()
         .single();
@@ -151,11 +156,11 @@ class HymliAiService {
 
       // 4. Inject initial welcome message if no previous messages exist
       if (!existingMsgs || existingMsgs.length === 0) {
-        await supabase.from('messages').insert({
+        await supabase.from("messages").insert({
           sender_id: HYMLI_AI_BOT_ID,
           receiver_id: currentUserId,
-          text: 'Anchored and ready. How can I assist your fleet today?',
-          type: 'text',
+          text: "Anchored and ready. How can I assist your fleet today?",
+          type: "text",
           delivery_state: 3,
           created_at: new Date().toISOString(),
         });
@@ -167,7 +172,10 @@ class HymliAiService {
         partner: HYMLI_BOT_PROFILE,
       };
     } catch (err) {
-      console.warn('[HymliAI] Exception in getOrCreateAiConversation, returning fallback:', err);
+      console.warn(
+        "[HymliAI] Exception in getOrCreateAiConversation, returning fallback:",
+        err,
+      );
       return {
         conversationId: `conv_hymli_${currentUserId}`,
         isNew: false,
@@ -179,15 +187,18 @@ class HymliAiService {
   /**
    * Pull last N messages for memory context before querying LLM
    */
-  public async fetchContextHistory(currentUserId: string, limit = 10): Promise<{ role: string; content: string }[]> {
+  public async fetchContextHistory(
+    currentUserId: string,
+    limit = 10,
+  ): Promise<{ role: string; content: string }[]> {
     try {
       const { data: msgs, error } = await supabase
-        .from('messages')
-        .select('sender_id, text, created_at')
+        .from("messages")
+        .select("sender_id, text, created_at")
         .or(
-          `and(sender_id.eq.${currentUserId},receiver_id.eq.${HYMLI_AI_BOT_ID}),and(sender_id.eq.${HYMLI_AI_BOT_ID},receiver_id.eq.${currentUserId})`
+          `and(sender_id.eq.${currentUserId},receiver_id.eq.${HYMLI_AI_BOT_ID}),and(sender_id.eq.${HYMLI_AI_BOT_ID},receiver_id.eq.${currentUserId})`,
         )
-        .order('created_at', { ascending: false })
+        .order("created_at", { ascending: false })
         .limit(limit);
 
       if (error || !msgs) return [];
@@ -196,12 +207,12 @@ class HymliAiService {
       return msgs
         .reverse()
         .map((m) => ({
-          role: m.sender_id === currentUserId ? 'user' : 'assistant',
-          content: m.text || '',
+          role: m.sender_id === currentUserId ? "user" : "assistant",
+          content: m.text || "",
         }))
         .filter((m) => m.content.trim().length > 0);
     } catch (err) {
-      console.warn('[HymliAI] Error fetching context history:', err);
+      console.warn("[HymliAI] Error fetching context history:", err);
       return [];
     }
   }
@@ -213,9 +224,9 @@ class HymliAiService {
     userPrompt: string,
     currentUserId: string,
     conversationId?: string,
-    saveMessagesToDb = true
+    saveMessagesToDb = true,
   ): Promise<string> {
-    if (!userPrompt.trim()) return '';
+    if (!userPrompt.trim()) return "";
 
     // 1. Pull context memory (last 10 messages)
     const contextHistory = await this.fetchContextHistory(currentUserId, 10);
@@ -223,21 +234,21 @@ class HymliAiService {
     // 2. Save user input to Supabase messages table if requested
     if (saveMessagesToDb && currentUserId) {
       try {
-        await supabase.from('messages').insert({
+        await supabase.from("messages").insert({
           sender_id: currentUserId,
           receiver_id: HYMLI_AI_BOT_ID,
           text: userPrompt,
-          type: 'text',
+          type: "text",
           delivery_state: 1,
           created_at: new Date().toISOString(),
         });
       } catch (e) {
-        console.warn('[HymliAI] User message save exception:', e);
+        console.warn("[HymliAI] User message save exception:", e);
       }
     }
 
     // 3. Generate response via Gemini or Ollama
-    let replyText = '';
+    let replyText = "";
     const systemInstruction = `You are Hymli AI, a sharp, executive fleet companion. 
 Sound like a real, helpful human peer—never a scripted chatbot.
 Rules:
@@ -245,45 +256,59 @@ Rules:
 2. Only dive into detailed or technical analysis if the user asks for it.
 3. Keep nautical terms subtle and natural—never use boilerplate speeches or forced roleplay on basic greetings.`;
 
-    if (this.activeProvider === 'ollama') {
-      replyText = await this.queryOllamaWithHistory(userPrompt, contextHistory, systemInstruction);
+    if (this.activeProvider === "ollama") {
+      replyText = await this.queryOllamaWithHistory(
+        userPrompt,
+        contextHistory,
+        systemInstruction,
+      );
     } else {
       try {
-        replyText = await this.queryGeminiWithHistory(userPrompt, contextHistory, systemInstruction);
+        replyText = await this.queryGeminiWithHistory(
+          userPrompt,
+          contextHistory,
+          systemInstruction,
+        );
       } catch (error: any) {
         console.error("Gemini API Error:", error);
-        if (error?.message?.toLowerCase().includes("permission denied") || error?.status === 403) {
-          replyText = "⚠️ API Permission Error: Please verify your GEMINI_API_KEY in environment settings.";
+        if (
+          error?.message?.toLowerCase().includes("permission denied") ||
+          error?.status === 403
+        ) {
+          replyText =
+            "⚠️ API Permission Error: Please verify your GEMINI_API_KEY in environment settings.";
         } else {
-          replyText = "I ran into an issue connecting to the core model. Please try again in a moment.";
+          replyText =
+            "I ran into an issue connecting to the core model. Please try again in a moment.";
         }
       }
     }
 
     if (!replyText) {
-      replyText = "I'm having trouble connecting right now. Please try sending your message again.";
+      replyText =
+        "I'm having trouble connecting right now. Please try sending your message again.";
     }
 
     // 4. Save Hymli AI reply directly to Supabase messages table
     if (saveMessagesToDb && currentUserId) {
       try {
-        await supabase.from('messages').insert({
+        await supabase.from("messages").insert({
           sender_id: HYMLI_AI_BOT_ID,
           receiver_id: currentUserId,
           text: replyText,
-          type: 'text',
+          type: "text",
           delivery_state: 3,
           created_at: new Date().toISOString(),
         });
 
         // Update conversation timestamp
         await supabase
-          .from('conversations')
+          .from("conversations")
           .update({ updated_at: new Date().toISOString() })
-          .eq('user_id', currentUserId)
-          .eq('partner_id', HYMLI_AI_BOT_ID);
+          .eq("user_id", currentUserId)
+          .eq("partner_id", HYMLI_AI_BOT_ID);
       } catch (e) {
-        console.warn('[HymliAI] AI reply message save exception:', e);
+        console.warn("[HymliAI] AI reply message save exception:", e);
       }
     }
 
@@ -296,39 +321,28 @@ Rules:
   private async queryGeminiWithHistory(
     userPrompt: string,
     history: { role: string; content: string }[],
-    systemInstruction: string
+    systemInstruction: string,
   ): Promise<string> {
     try {
       const formattedHistory = history
-        .map((h) => `${h.role === 'user' ? 'Captain' : 'Hymli AI'}: ${h.content}`)
-        .join('\n');
+        .map(
+          (h) => `${h.role === "user" ? "Captain" : "Hymli AI"}: ${h.content}`,
+        )
+        .join("\n");
 
       const fullPrompt = formattedHistory
         ? `Previous Fleet Context:\n${formattedHistory}\n\nCaptain: ${userPrompt}`
         : userPrompt;
 
-      // 1. Try serverless chat edge function proxy with model verification
-      try {
-        const edgeResponse = await chatService.callChatEdgeProxy(
-          fullPrompt,
-          this.activeModelId,
-          systemInstruction
-        );
-        if (edgeResponse && edgeResponse.trim().length > 0) {
-          return edgeResponse.trim();
-        }
-      } catch (proxyErr) {
-        console.warn('[HymliAI] Edge proxy attempt warning, using local SDK fallback:', proxyErr);
-      }
-
-      // 2. Direct local SDK fallback
+      // 1. Use the local @google/genai SDK directly (works standalone with VITE_GEMINI_API_KEY)
       if (!this.geminiClient) {
         this.initGemini();
       }
 
       if (this.geminiClient) {
+        const model = this.activeModelId || "gemini-2.5-flash";
         const response = await this.geminiClient.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model,
           contents: fullPrompt,
           config: {
             systemInstruction,
@@ -341,13 +355,27 @@ Rules:
           return response.text.trim();
         }
       }
-      return '';
+
+      // 2. Optional serverless edge proxy fallback (external Supabase dependency)
+      try {
+        const edgeResponse = await chatService.callChatEdgeProxy(
+          fullPrompt,
+          this.activeModelId,
+          systemInstruction,
+        );
+        if (edgeResponse && edgeResponse.trim().length > 0) {
+          return edgeResponse.trim();
+        }
+      } catch (proxyErr) {
+        console.warn("[HymliAI] Edge proxy fallback warning:", proxyErr);
+      }
+
+      return "";
     } catch (err: any) {
-      console.warn('[HymliAI] Gemini query exception:', err);
+      console.warn("[HymliAI] Gemini query exception:", err);
       throw err;
     }
   }
-
 
   /**
    * Internal Ollama Caller with history
@@ -355,25 +383,27 @@ Rules:
   private async queryOllamaWithHistory(
     userPrompt: string,
     history: { role: string; content: string }[],
-    systemInstruction: string
+    systemInstruction: string,
   ): Promise<string> {
     try {
       const formattedHistory = history
-        .map((h) => `${h.role === 'user' ? 'Captain' : 'Hymli AI'}: ${h.content}`)
-        .join('\n');
+        .map(
+          (h) => `${h.role === "user" ? "Captain" : "Hymli AI"}: ${h.content}`,
+        )
+        .join("\n");
 
       const fullPrompt = `${systemInstruction}\n\n${
-        formattedHistory ? `Recent Log:\n${formattedHistory}\n\n` : ''
+        formattedHistory ? `Recent Log:\n${formattedHistory}\n\n` : ""
       }Captain: ${userPrompt}`;
 
       const res = await ollamaService.queryOllama(fullPrompt);
       if (res.success && res.result) {
         return res.result.trim();
       }
-      return '';
+      return "";
     } catch (err) {
-      console.warn('[HymliAI] Ollama query exception:', err);
-      return '';
+      console.warn("[HymliAI] Ollama query exception:", err);
+      return "";
     }
   }
 
@@ -384,20 +414,24 @@ Rules:
   /**
    * Tone Polish for executive communications
    */
-  public async generateTonePolish(text: string, tone = 'Executive Fleet'): Promise<string> {
-    if (!text) return '';
+  public async generateTonePolish(
+    text: string,
+    tone = "Executive Fleet",
+  ): Promise<string> {
+    if (!text) return "";
     try {
-      if (this.activeProvider === 'ollama') {
+      if (this.activeProvider === "ollama") {
         const res = await ollamaService.generateTonePolish(text, tone);
         return res.result;
       }
 
       if (this.geminiClient) {
         const response = await this.geminiClient.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: "gemini-3.6-flash",
           contents: `Rewrite the following message into an polished, professional, concise ${tone} tone suitable for executive fleet communications:\n\n"${text}"`,
           config: {
-            systemInstruction: 'Return only the polished text without meta commentary.',
+            systemInstruction:
+              "Return only the polished text without meta commentary.",
           },
         });
         if (response?.text) return response.text.trim();
@@ -414,22 +448,22 @@ Rules:
    */
   public async generateChatSummary(messages: string[]): Promise<string> {
     if (!messages || messages.length === 0) {
-      return 'No message transcript available for executive summary.';
+      return "No message transcript available for executive summary.";
     }
 
     try {
-      if (this.activeProvider === 'ollama') {
+      if (this.activeProvider === "ollama") {
         const res = await ollamaService.summarizeChat(messages);
         return res.result;
       }
 
       if (this.geminiClient) {
-        const transcript = messages.join('\n');
+        const transcript = messages.join("\n");
         const response = await this.geminiClient.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: "gemini-3.6-flash",
           contents: `Provide a 3-bullet executive summary with nautical precision for this chat transcript:\n\n${transcript}`,
           config: {
-            systemInstruction: 'Be concise, executive, and direct.',
+            systemInstruction: "Be concise, executive, and direct.",
           },
         });
         if (response?.text) return response.text.trim();
@@ -444,41 +478,52 @@ Rules:
   /**
    * Extract Instant Action Items
    */
-  public async generateActionItems(textOrMessages: string | string[]): Promise<string[]> {
-    const content = Array.isArray(textOrMessages) ? textOrMessages.join('\n') : textOrMessages;
-    if (!content.trim()) return ['Confirm fleet readiness'];
+  public async generateActionItems(
+    textOrMessages: string | string[],
+  ): Promise<string[]> {
+    const content = Array.isArray(textOrMessages)
+      ? textOrMessages.join("\n")
+      : textOrMessages;
+    if (!content.trim()) return ["Confirm fleet readiness"];
 
     try {
       if (this.geminiClient) {
         const response = await this.geminiClient.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: "gemini-3.6-flash",
           contents: `Extract up to 3 high-priority action items from this text. Return each item as a short single line:\n\n${content}`,
         });
         if (response?.text) {
           return response.text
-            .split('\n')
-            .map((line) => line.replace(/^[\s•\-\d\.]+\s*/, '').trim())
+            .split("\n")
+            .map((line) => line.replace(/^[\s•\-\d\.]+\s*/, "").trim())
             .filter((line) => line.length > 0);
         }
       }
     } catch (e) {
-      console.warn('[HymliAI] Action item generation exception:', e);
+      console.warn("[HymliAI] Action item generation exception:", e);
     }
 
-    return ['Review operational parameters', 'Acknowledge fleet dispatch', 'Verify anchor logs'];
+    return [
+      "Review operational parameters",
+      "Acknowledge fleet dispatch",
+      "Verify anchor logs",
+    ];
   }
 
   /**
    * Auto-reply generator for contextual suggested responses
    */
-  public async generateAutoReply(messageText: string, contextMessages?: string[]): Promise<string> {
-    if (!messageText) return 'Acknowledged, Captain.';
+  public async generateAutoReply(
+    messageText: string,
+    contextMessages?: string[],
+  ): Promise<string> {
+    if (!messageText) return "Acknowledged, Captain.";
 
     try {
       if (this.geminiClient) {
         const prompt = `Generate a brief, 1-sentence executive auto-reply with subtle nautical flair for this message:\n"${messageText}"`;
         const response = await this.geminiClient.models.generateContent({
-          model: 'gemini-3.6-flash',
+          model: "gemini-3.6-flash",
           contents: prompt,
         });
         if (response?.text) return response.text.trim();
@@ -487,7 +532,7 @@ Rules:
       // Fallback
     }
 
-    return 'Understood, Captain. Signals received and course aligned.';
+    return "Understood, Captain. Signals received and course aligned.";
   }
 
   // =========================================================================
@@ -501,14 +546,19 @@ Rules:
   public async handleVoiceCallUtterance(
     spokenText: string,
     currentUserId: string,
-    conversationId?: string
+    conversationId?: string,
   ): Promise<{ replyText: string; audioPlayed: boolean }> {
     if (!spokenText || !spokenText.trim()) {
-      return { replyText: '', audioPlayed: false };
+      return { replyText: "", audioPlayed: false };
     }
 
     // Query Hymli AI engine and sync with Supabase
-    const replyText = await this.askHymli(spokenText, currentUserId, conversationId, true);
+    const replyText = await this.askHymli(
+      spokenText,
+      currentUserId,
+      conversationId,
+      true,
+    );
 
     // Speak response back hands-free
     let audioPlayed = false;
@@ -525,13 +575,13 @@ Rules:
   // =========================================================================
 
   public isSpeechSynthesisSupported(): boolean {
-    return typeof window !== 'undefined' && 'speechSynthesis' in window;
+    return typeof window !== "undefined" && "speechSynthesis" in window;
   }
 
   public isSpeechRecognitionSupported(): boolean {
     return (
-      typeof window !== 'undefined' &&
-      ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window)
+      typeof window !== "undefined" &&
+      ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)
     );
   }
 
@@ -545,10 +595,12 @@ Rules:
       rate?: number;
       pitch?: number;
       onEnd?: () => void;
-    }
+    },
   ): void {
     if (!this.isSpeechSynthesisSupported()) {
-      console.warn('[HymliAI] SpeechSynthesis is not supported in this environment');
+      console.warn(
+        "[HymliAI] SpeechSynthesis is not supported in this environment",
+      );
       return;
     }
 
@@ -564,10 +616,10 @@ Rules:
         const preferredVoice =
           voices.find(
             (v) =>
-              v.name.includes('Google') ||
-              v.name.includes('Natural') ||
-              v.name.includes('Daniel') ||
-              v.name.includes('Samantha')
+              v.name.includes("Google") ||
+              v.name.includes("Natural") ||
+              v.name.includes("Daniel") ||
+              v.name.includes("Samantha"),
           ) || voices[0];
         utterance.voice = preferredVoice;
       }
@@ -582,7 +634,7 @@ Rules:
       this.isSynthesizing = true;
       window.speechSynthesis.speak(utterance);
     } catch (err) {
-      console.warn('[HymliAI] SpeechSynthesis error:', err);
+      console.warn("[HymliAI] SpeechSynthesis error:", err);
     }
   }
 
@@ -601,31 +653,33 @@ Rules:
    */
   public startSpeechRecognition(
     onResult: (transcript: string) => void,
-    onError?: (err: any) => void
+    onError?: (err: any) => void,
   ): () => void {
     if (!this.isSpeechRecognitionSupported()) {
-      if (onError) onError(new Error('Speech recognition not supported in browser'));
+      if (onError)
+        onError(new Error("Speech recognition not supported in browser"));
       return () => {};
     }
 
     try {
       const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        (window as any).SpeechRecognition ||
+        (window as any).webkitSpeechRecognition;
       const recognition = new SpeechRecognition();
 
       recognition.continuous = false;
       recognition.interimResults = false;
-      recognition.lang = 'en-US';
+      recognition.lang = "en-US";
 
       recognition.onresult = (event: any) => {
-        const transcript = event.results?.[0]?.[0]?.transcript || '';
+        const transcript = event.results?.[0]?.[0]?.transcript || "";
         if (transcript) {
           onResult(transcript);
         }
       };
 
       recognition.onerror = (event: any) => {
-        console.warn('[HymliAI] Speech recognition error:', event.error);
+        console.warn("[HymliAI] Speech recognition error:", event.error);
         if (onError) onError(event);
       };
 
