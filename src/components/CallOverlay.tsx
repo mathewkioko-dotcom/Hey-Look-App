@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useRef, useEffect } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   Mic,
   MicOff,
@@ -10,10 +10,10 @@ import {
   Volume2,
   Anchor,
   Radio,
-  X
-} from 'lucide-react';
-import { Profile } from '../types';
-import { CallState, CallType, IncomingCallInfo } from '../hooks/useWebRTCCall';
+  X,
+} from "lucide-react";
+import { Profile } from "../types";
+import { CallState, CallType, IncomingCallInfo } from "../hooks/useWebRTCCall";
 
 interface CallOverlayProps {
   currentUser: Profile;
@@ -70,15 +70,15 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   const formatDuration = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
     const secs = totalSeconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  if (callState === 'idle') return null;
+  if (callState === "idle") return null;
 
   return (
     <AnimatePresence>
       {/* 1. INCOMING CALL RINGING MODAL */}
-      {callState === 'ringing' && incomingCall && (
+      {callState === "ringing" && incomingCall && (
         <motion.div
           initial={{ opacity: 0, y: -50 }}
           animate={{ opacity: 1, y: 0 }}
@@ -97,9 +97,12 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <h4 className="font-bold text-sm text-white truncate">{incomingCall.caller.full_name}</h4>
+                <h4 className="font-bold text-sm text-white truncate">
+                  {incomingCall.caller.full_name}
+                </h4>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 font-mono font-semibold border border-cyan-500/30">
-                  Incoming {incomingCall.callType === 'video' ? 'Video' : 'Audio'} Call
+                  Incoming{" "}
+                  {incomingCall.callType === "video" ? "Video" : "Audio"} Call
                 </span>
               </div>
               <p className="text-xs text-cyan-300 font-mono flex items-center gap-1 mt-0.5">
@@ -129,8 +132,14 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
         </motion.div>
       )}
 
-      {/* 2. ACTIVE CALL / CALLING OVERLAY */}
-      {(callState === 'calling' || callState === 'connected') && (
+      {/* 2. ACTIVE CALL / CALLING / RINGING OVERLAY
+          Note: 'ringing' is shown here for the CALLER (callState === 'ringing'
+          with no incomingCall) so the outgoing call stays visible after the
+          receiver acknowledges. The receiver's incoming-call toast is handled
+          by block 1 above (callState === 'ringing' && incomingCall). */}
+      {(callState === "calling" ||
+        callState === "connected" ||
+        (callState === "ringing" && !incomingCall)) && (
         <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -146,14 +155,20 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 </div>
                 <div>
                   <h3 className="font-extrabold text-base tracking-wide flex items-center gap-2">
-                    {targetUser?.full_name || targetUser?.username || 'Nautical Contact'}
+                    {targetUser?.full_name ||
+                      targetUser?.username ||
+                      "Nautical Contact"}
                     <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono font-semibold border border-emerald-500/30">
                       WebRTC E2EE Stream
                     </span>
                   </h3>
                   <p className="text-xs text-slate-300 font-mono flex items-center gap-1.5 mt-0.5">
                     <Radio className="w-3 h-3 text-emerald-400 animate-ping" />
-                    {callState === 'calling' ? 'Calling...' : formatDuration(callDuration)}
+                    {callState === "calling"
+                      ? "Calling..."
+                      : callState === "ringing"
+                        ? "Ringing..."
+                        : formatDuration(callDuration)}
                   </p>
                 </div>
               </div>
@@ -169,7 +184,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
             {/* Video Stage / Voice Stage */}
             <div className="relative flex-1 w-full h-full bg-slate-900 flex items-center justify-center overflow-hidden">
               {/* Remote Stream Video */}
-              {callType === 'video' && remoteStream ? (
+              {callType === "video" && remoteStream ? (
                 <video
                   ref={remoteVideoRef}
                   autoPlay
@@ -182,7 +197,10 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                   <div className="relative">
                     <div className="w-32 h-32 rounded-full p-1 bg-gradient-to-tr from-cyan-400 via-indigo-500 to-pink-500 shadow-2xl animate-pulse">
                       <img
-                        src={targetUser?.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300'}
+                        src={
+                          targetUser?.avatar_url ||
+                          "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=300"
+                        }
                         alt={targetUser?.full_name}
                         className="w-full h-full rounded-full object-cover border-4 border-slate-900"
                       />
@@ -190,16 +208,22 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                     <div className="absolute inset-0 -m-4 rounded-full border border-dashed border-cyan-400/40 animate-spin-slow pointer-events-none" />
                   </div>
                   <div>
-                    <h2 className="text-2xl font-extrabold text-white">{targetUser?.full_name}</h2>
+                    <h2 className="text-2xl font-extrabold text-white">
+                      {targetUser?.full_name}
+                    </h2>
                     <p className="text-sm text-cyan-300 font-medium mt-1">
-                      {callState === 'calling' ? 'Connecting to Harbor Channel...' : 'Nautical Voice Channel Active'}
+                      {callState === "calling"
+                        ? "Connecting to Harbor Channel..."
+                        : callState === "ringing"
+                          ? "Ringing the remote harbor..."
+                          : "Nautical Voice Channel Active"}
                     </p>
                   </div>
                 </div>
               )}
 
               {/* Local Stream Video Preview */}
-              {callType === 'video' && (
+              {callType === "video" && (
                 <div className="absolute bottom-24 right-6 z-20 w-36 h-48 sm:w-44 sm:h-56 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-slate-950/80 backdrop-blur-md">
                   {!isCameraOff && localStream ? (
                     <video
@@ -207,7 +231,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                       autoPlay
                       playsInline
                       muted
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-cover rounded-xl transform -scale-x-100"
                     />
                   ) : (
                     <div className="w-full h-full flex flex-col items-center justify-center p-2 text-center text-slate-400">
@@ -226,23 +250,35 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
                 <button
                   onClick={onToggleMute}
                   className={`p-3.5 rounded-full transition-all cursor-pointer ${
-                    isMuted ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/30' : 'bg-white/10 hover:bg-white/20 text-white'
+                    isMuted
+                      ? "bg-rose-500 text-white shadow-lg shadow-rose-500/30"
+                      : "bg-white/10 hover:bg-white/20 text-white"
                   }`}
-                  title={isMuted ? 'Unmute Microphone' : 'Mute Microphone'}
+                  title={isMuted ? "Unmute Microphone" : "Mute Microphone"}
                 >
-                  {isMuted ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+                  {isMuted ? (
+                    <MicOff className="w-5 h-5" />
+                  ) : (
+                    <Mic className="w-5 h-5" />
+                  )}
                 </button>
 
                 {/* Toggle Camera */}
-                {callType === 'video' && (
+                {callType === "video" && (
                   <button
                     onClick={onToggleCamera}
                     className={`p-3.5 rounded-full transition-all cursor-pointer ${
-                      isCameraOff ? 'bg-amber-500 text-white shadow-lg shadow-amber-500/30' : 'bg-white/10 hover:bg-white/20 text-white'
+                      isCameraOff
+                        ? "bg-amber-500 text-white shadow-lg shadow-amber-500/30"
+                        : "bg-white/10 hover:bg-white/20 text-white"
                     }`}
-                    title={isCameraOff ? 'Turn Camera On' : 'Turn Camera Off'}
+                    title={isCameraOff ? "Turn Camera On" : "Turn Camera Off"}
                   >
-                    {isCameraOff ? <VideoOff className="w-5 h-5" /> : <Video className="w-5 h-5" />}
+                    {isCameraOff ? (
+                      <VideoOff className="w-5 h-5" />
+                    ) : (
+                      <Video className="w-5 h-5" />
+                    )}
                   </button>
                 )}
 

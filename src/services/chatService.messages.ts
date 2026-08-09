@@ -17,6 +17,7 @@ import {
   deriveRoomId,
   filterVanishingMessages,
 } from "./chatService.utils";
+import { HYMLI_AI_BOT_ID, hymliAiService } from "./hymliAiService";
 
 /**
  * Message persistence + realtime operations against the Supabase `messages`
@@ -30,18 +31,29 @@ import {
 export async function sendMessage(
   msg: Partial<ChatMessage> & { sender_id: string; receiver_id: string },
 ): Promise<ChatMessage> {
-  // Resolve the current authenticated user so we can compute `is_me`
-  // correctly. This ensures AI/bot replies (sender_id = bot ID) are NOT
-  // flagged as the current user's own message, so they render on the left.
+  // Resolve the current authenticated user directly from Supabase auth state
+  // (not local state / hardcoded IDs) so we compute `is_me` correctly and can
+  // guard against a null/missing sender_id (which would otherwise cause a
+  // foreign-key violation on `messages.sender_id`).
   let currentUserId = "";
   try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    currentUserId = sessionData?.session?.user?.id || "";
+    const { data } = await supabase.auth.getUser();
+    currentUserId = data?.user?.id || "";
   } catch (err) {
-    console.warn("[ChatService] Could not resolve session for is_me:", err);
+    console.warn("[ChatService] Could not resolve auth user for is_me:", err);
   }
 
   const is_me = Boolean(currentUserId) && msg.sender_id === currentUserId;
+
+  // FRIENDLY ERROR GUARD: `sender_id` must be a real, non-empty value that
+  // (ideally) matches the authenticated user. If it's null/missing we throw a
+  // clear message BEFORE hitting the DB, instead of letting Supabase return a
+  // foreign-key violation on `messages.sender_id`.
+  if (!msg.sender_id || !String(msg.sender_id).trim()) {
+    throw new Error(
+      "Cannot send message: sender is not authenticated. Please sign in and try again.",
+    );
+  }
 
   // Resolve the room (conversation) ID. The `messages` table has a NOT NULL
   // `room_id` column, so we must always include it. Prefer the explicit
@@ -67,12 +79,17 @@ export async function sendMessage(
   // Only include room_id if it passes UUID validation; otherwise omit it.
   const roomId = isValidUuid(sanitizedRoomId) ? sanitizedRoomId : undefined;
 
+  // Resolve the message text from the explicit `text` field or the `content`
+  // alias passable by callers/Hymli AI. Guarantee it is ALWAYS a non-null,
+  // non-undefined, non-empty string before building the DB payload.
+  const messageText = String(msg.text || (msg as any).content || "").trim();
+
   const newMessage: ChatMessage = {
     id: msg.id && isValidUuid(msg.id) ? msg.id : generateUuid(),
     room_id: roomId,
     sender_id: msg.sender_id,
     receiver_id: msg.receiver_id,
-    text: msg.text || "",
+    text: messageText,
     created_at: msg.created_at || new Date().toISOString(),
     is_me,
     status: (msg.status ?? 1) as MessageDeliveryStatus, // 1 = Launched
@@ -92,7 +109,12 @@ export async function sendMessage(
       id: newMessage.id,
       sender_id: newMessage.sender_id,
       receiver_id: newMessage.receiver_id,
-      text: newMessage.text,
+      // `text` is the canonical `messages.text` column; `content` is included
+      // as a robust alias so the row is readable regardless of which column
+      // the DB/realtime layer surfaces. Both derive from the same guaranteed
+      // non-empty `messageText` string.
+      text: messageText,
+      content: messageText,
       type: newMessage.type,
       delivery_state: newMessage.status as number | null,
       image_url: newMessage.image_url,
@@ -100,11 +122,16 @@ export async function sendMessage(
       audio_duration: newMessage.audio_duration,
       is_encrypted: newMessage.is_encrypted,
       burn_at: newMessage.burn_at,
-      reply_to_id: newMessage.reply_to_id,
-      reply_preview: newMessage.reply_preview,
       call_info: newMessage.call_info,
       created_at: newMessage.created_at,
     };
+    // SCHEMA-GUARD: `reply_preview` is a client-only construct (and
+    // `reply_to_id` may be unmapped in the `messages` table). Strip both from
+    // the DB insert payload so PostgREST does not reject the insert with an
+    // "column does not exist" error. They remain on the returned `newMessage`
+    // so the UI can still render reply previews locally.
+    delete insertPayload.reply_preview;
+    delete insertPayload.reply_to_id;
     // Only attach room_id when it is a valid UUID; otherwise omit it so the
     // insert does not fail (or violate the NOT NULL constraint) with an
     // invalid/non-UUID or stripped-to-empty value.
@@ -126,25 +153,122 @@ export async function sendMessage(
   // (`chat:${receiverId}:${senderId}`). The receiving client subscribes to
   // exactly this channel in subscribeToMessages, so the message arrives
   // immediately without waiting for DB replication.
+  //
+  // STACK-OVERFLOW GUARD: previously the subscribe callback called
+  // `supabase.removeChannel(bc)` directly inside the callback. Removing a
+  // channel fires status/close events that re-invoked the same callback,
+  // which recursed forever and threw
+  // `RangeError: Maximum call stack size exceeded`. We now (1) fire the
+  // send exactly once via a `sentOnce` flag, and (2) schedule the cleanup
+  // asynchronously with `setTimeout` so it can never re-enter this callback
+  // synchronously.
   try {
     const receiverRoom = `chat:${newMessage.receiver_id}:${newMessage.sender_id}`;
+    // Remove any stale broadcast channel on this exact topic to avoid sending
+    // into an already-closed/subscribed duplicate.
+    supabase.getChannels().forEach((ch) => {
+      if (String(ch.topic || "").replace(/^realtime:/, "") === receiverRoom) {
+        try {
+          supabase.removeChannel(ch);
+        } catch (e) {
+          /* noop */
+        }
+      }
+    });
+
     const bc = supabase.channel(receiverRoom);
-    await bc.subscribe(async (status) => {
+    let sentOnce = false;
+    await bc.subscribe((status) => {
       if (status === "SUBSCRIBED") {
-        await bc.send({
+        if (sentOnce) return;
+        sentOnce = true;
+        bc.send({
           type: "broadcast",
           event: "new-message",
           payload: { message: newMessage },
+        }).catch((e) => {
+          console.warn("[ChatService] Broadcast send failed:", e);
         });
-        // Unsubscribe after send to avoid leaking channels.
-        supabase.removeChannel(bc);
-      } else {
-        // Channel failed to subscribe — remove to avoid leaks.
-        supabase.removeChannel(bc);
       }
+      // Defer the channel removal so the subscribe callback can finish cleanly
+      // without being re-entered by the resulting status events (prevents the
+      // "Maximum call stack size exceeded" RangeError).
+      setTimeout(() => {
+        try {
+          supabase.removeChannel(bc);
+        } catch (e) {
+          /* noop — channel may already be removed */
+        }
+      }, 0);
     });
   } catch (err) {
     console.warn("[ChatService] Broadcast delivery failed:", err);
+  }
+
+  // ---- CLEAR UNREAD ON REPLY (DB) ----
+  // Whenever the user sends a message to a contact, immediately mark that
+  // contact's messages to me as read. This keeps the unread state consistent
+  // across all send paths (ChatView, ChatInputBar, attachments, forwards) so
+  // the incoming badge clears immediately and stays cleared after reload.
+  // Fire-and-forget: never block or fail the send path on this update.
+  if (currentUserId && isValidUuid(newMessage.receiver_id)) {
+    (async () => {
+      try {
+        await supabase
+          .from("messages")
+          .update({ is_read: true })
+          .eq("sender_id", newMessage.receiver_id)
+          .eq("receiver_id", currentUserId);
+      } catch (err) {
+        console.warn("[ChatService] mark-as-read on reply error:", err);
+}
+    })();
+  }
+
+  // ---- HYMLI AI AUTO-RESPONDER ----
+  // If the user is messaging the Hymli AI bot, immediately trigger the AI
+  // engine so the bot replies and the reply is persisted AND broadcast so it
+  // appears instantly in the chat UI (not just whenever DB replication fires
+  // the postgres_changes listener). The reply row is inserted with
+  // sender_id = HYMLI_AI_BOT_ID and receiver_id = the current user, making it
+  // appear as a normal incoming message in the chat.
+  //
+  // Detection is robust: it matches the canonical HYMLI_AI_BOT_ID, the legacy
+  // `'hymli-ai'` string alias, and any receiver flagged as an AI partner.
+  const isHymliTarget =
+    String(newMessage.receiver_id) === String(HYMLI_AI_BOT_ID) ||
+    String(newMessage.receiver_id).toLowerCase() === "hymli-ai" ||
+    (newMessage as any).receiver_is_ai === true;
+
+  if (isHymliTarget && currentUserId && messageText.trim().length > 0) {
+    // Fire-and-forget: never block or crash the send path on the AI response.
+    (async () => {
+      try {
+        // Generate the AI reply. Pass saveMessagesToDb=false because the user's
+        // message is ALREADY persisted by sendMessage above, and we persist the
+        // AI reply ourselves below via sendMessage (which broadcasts it).
+        const replyText = await hymliAiService.askHymli(
+          messageText,
+          currentUserId,
+          newMessage.room_id,
+          false,
+        );
+
+        if (replyText && replyText.trim().length > 0) {
+          // Persist + broadcast the AI reply through the same sendMessage path
+          // so it appears in the UI immediately (sender = bot, receiver = user).
+          await sendMessage({
+            room_id: newMessage.room_id,
+            sender_id: HYMLI_AI_BOT_ID,
+            receiver_id: currentUserId,
+            text: replyText,
+            created_at: new Date().toISOString(),
+          });
+        }
+      } catch (err) {
+        console.warn("[ChatService] Hymli AI auto-reply failed:", err);
+      }
+    })();
   }
 
   return newMessage;
@@ -256,8 +380,10 @@ export function subscribeToMessages(
   const broadcastChannel = supabase.channel(roomId);
   broadcastChannel
     .on("broadcast", { event: "new-message" }, ({ payload }) => {
-      if (!payload || payload.message) {
+      if (payload && payload.message) {
         onNewMessage(payload.message);
+        // Mark message as delivered to this client
+        markDelivered(payload.message.id, currentUserId);
       }
     })
     .on("broadcast", { event: "update-message" }, ({ payload }) => {
@@ -391,26 +517,82 @@ export async function markSubmerged(
 }
 
 /**
- * Delete a message by ID from Supabase
+ * Advance message delivery status to 2 (Docked) when delivered to client
  */
-export async function deleteMessage(messageId: string): Promise<boolean> {
-  // Guard against non-UUID (temporary) message IDs so the DELETE never
-  // triggers an HTTP 400 from PostgREST. Persisted rows always use a valid
-  // UUID, so this only short-circuits messages that were never saved.
+export async function markDelivered(
+  messageId: string,
+  currentUserId: string,
+): Promise<boolean> {
+  if (!isValidUuid(messageId)) {
+    return false;
+  }
+
+  try {
+    const { error } = await supabase
+      .from("messages")
+      .update({ delivery_state: 2 })
+      .eq("id", messageId)
+      .eq("receiver_id", currentUserId)
+      .gte("delivery_state", 1) // Only update if status is Sent (1) or Failed (0)
+      .lt("delivery_state", 2); // Only update if status is less than Delivered (2)
+
+    if (error) {
+      console.warn(
+        "[ChatService] Error marking message delivered:",
+        error.message,
+      );
+    }
+    return !error;
+  } catch (err) {
+    console.warn("[ChatService] Exception marking message delivered:", err);
+    return false;
+  }
+}
+
+/**
+ * Update a message's text content and set an edited_at timestamp.
+ */
+export async function editMessage(
+  messageId: string,
+  newText: string,
+): Promise<boolean> {
   if (!isValidUuid(messageId)) {
     return false;
   }
   try {
     const { error } = await supabase
       .from("messages")
-      .delete()
+      .update({ text: newText, edited_at: new Date().toISOString() })
       .eq("id", messageId);
+
     if (error) {
-      console.warn("[ChatService] Error deleting message:", error.message);
+      console.warn("[ChatService] Error editing message:", error.message);
     }
     return !error;
   } catch (err) {
-    console.warn("[ChatService] Exception deleting message:", err);
+    console.warn("[ChatService] Exception editing message:", err);
+    return false;
+  }
+}
+
+/**
+ * Delete a message by ID from Supabase
+ */
+export async function deleteMessage(messageId: string): Promise<boolean> {
+  if (!isValidUuid(messageId)) {
+    return false;
+  }
+  try {
+    const { error } = await supabase
+      .from("messages")
+      .update({ is_deleted: true, text: "" }) // Soft delete: set is_deleted to true and clear text
+      .eq("id", messageId);
+    if (error) {
+      console.warn("[ChatService] Error soft-deleting message:", error.message);
+    }
+    return !error;
+  } catch (err) {
+    console.warn("[ChatService] Exception soft-deleting message:", err);
     return false;
   }
 }
@@ -471,7 +653,8 @@ export async function reactToMessage(
       },
       { onConflict: "message_id,user_id" },
     );
-    if (error) console.warn("[ChatService] reactToMessage error:", error.message);
+    if (error)
+      console.warn("[ChatService] reactToMessage error:", error.message);
     return !error;
   } catch (err) {
     console.warn("[ChatService] reactToMessage exception:", err);
@@ -494,7 +677,10 @@ export async function forwardMessages(
     const { data: originals, error: fetchErr } = await supabase
       .from("messages")
       .select("*")
-      .in("id", messageIds.filter((id) => isValidUuid(id)));
+      .in(
+        "id",
+        messageIds.filter((id) => isValidUuid(id)),
+      );
 
     if (fetchErr || !originals || originals.length === 0) {
       console.warn("[ChatService] forwardMessages: no originals found");
@@ -521,7 +707,8 @@ export async function forwardMessages(
 
     if (inserts.length === 0) return false;
     const { error } = await supabase.from("messages").insert(inserts);
-    if (error) console.warn("[ChatService] forwardMessages error:", error.message);
+    if (error)
+      console.warn("[ChatService] forwardMessages error:", error.message);
     return !error;
   } catch (err) {
     console.warn("[ChatService] forwardMessages exception:", err);
@@ -569,7 +756,8 @@ export async function unstarMessage(
       .delete()
       .eq("message_id", messageId)
       .eq("user_id", userId);
-    if (error) console.warn("[ChatService] unstarMessage error:", error.message);
+    if (error)
+      console.warn("[ChatService] unstarMessage error:", error.message);
     return !error;
   } catch (err) {
     console.warn("[ChatService] unstarMessage exception:", err);
@@ -592,7 +780,8 @@ export async function reportMessage(
       reporter_id: reporterId,
       reason,
     });
-    if (error) console.warn("[ChatService] reportMessage error:", error.message);
+    if (error)
+      console.warn("[ChatService] reportMessage error:", error.message);
     return !error;
   } catch (err) {
     console.warn("[ChatService] reportMessage exception:", err);
@@ -653,10 +842,13 @@ export async function pinMessage(
 ): Promise<boolean> {
   if (!isValidUuid(messageId)) return false;
   try {
-    const hours = duration === "24 Hours" ? 24 : duration === "7 Days" ? 168 : 720;
+    const hours =
+      duration === "24 Hours" ? 24 : duration === "7 Days" ? 168 : 720;
     const payload: Record<string, any> = { is_pinned: isPinned };
     if (isPinned) {
-      payload.pin_expires_at = new Date(Date.now() + hours * 3600000).toISOString();
+      payload.pin_expires_at = new Date(
+        Date.now() + hours * 3600000,
+      ).toISOString();
     } else {
       payload.pin_expires_at = null;
     }
@@ -685,7 +877,8 @@ export async function saveEditHistory(
       message_id: messageId,
       previous_text: previousText,
     });
-    if (error) console.warn("[ChatService] saveEditHistory error:", error.message);
+    if (error)
+      console.warn("[ChatService] saveEditHistory error:", error.message);
     return !error;
   } catch (err) {
     console.warn("[ChatService] saveEditHistory exception:", err);

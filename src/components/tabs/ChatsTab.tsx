@@ -23,7 +23,7 @@ import {
   useTypingIndicator,
   getCustomTypingPhrase,
 } from "../../hooks/useTypingIndicator";
-import { chatService } from "../../services/chatService";
+import { chatService, isValidUuid } from "../../services/chatService";
 import {
   formatConversationTime,
   formatNauticalPresence,
@@ -41,7 +41,11 @@ interface ChatsTabProps {
   webrtc?: WebRTCState;
 }
 
-export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark, webrtc }) => {
+export const ChatsTab: React.FC<ChatsTabProps> = ({
+  currentUser,
+  isDark,
+  webrtc,
+}) => {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [registeredProfiles, setRegisteredProfiles] = useState<Profile[]>([]);
   const [selectedConvId, setSelectedConvId] = useState<string>("");
@@ -223,13 +227,15 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark, webrtc 
       )
       .subscribe();
 
-// ---- REAL-TIME MESSAGES: keep sidebar conversation list in sync ----
+    // ---- REAL-TIME MESSAGES: keep sidebar conversation list in sync ----
     // Subscribes to any INSERT on the messages table and refreshes the
     // conversation list so both the sender and the receiver see the new
     // message preview + reordered list instantly, even when the chat is not
     // actively open.
     const messagesChannel = supabase
-      .channel(`messages_realtime_${Math.random().toString(36).substring(2, 9)}`)
+      .channel(
+        `messages_realtime_${Math.random().toString(36).substring(2, 9)}`,
+      )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "messages" },
@@ -257,24 +263,101 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark, webrtc 
 
           const createdAt = row.created_at || new Date().toISOString();
 
+          // Determine whether this is the currently-selected (active) chat. If
+          // the incoming message is for a DIFFERENT contact (a background
+          // chat) and was sent by that contact (not by me), we bump their
+          // unread count so the sidebar shows a live badge without a refresh.
+          const isBackgroundChat =
+            convId !== selectedConvId &&
+            row.sender_id !== currentUserId &&
+            row.sender_id !== selectedConvId;
+
           setConversations((prev) => {
             const list = prev || [];
             const existing = list.find((c) => c.id === convId);
-            if (!existing) return list;
+            if (existing) {
+              const updated: Conversation = {
+                ...existing,
+                lastMessage: text,
+                lastMessageTime: formatConversationTime(createdAt),
+                last_message_at: createdAt,
+                unreadCount: isBackgroundChat
+                  ? (existing.unreadCount || 0) + 1
+                  : existing.unreadCount || 0,
+              };
 
-            const updated: Conversation = {
-              ...existing,
+              // Move the touched conversation to the top of the list.
+              const rest = list.filter((c) => c.id !== convId);
+              return [updated, ...rest];
+            }
+
+            // ---- AUTO-UPDATING ROSTER ----
+            // The message is from a contact that is not yet in the sidebar
+            // (e.g. a brand-new sender). Instead of ignoring it (which is why
+            // "No active anchors yet" used to persist until a refresh), we
+            // optimistically create a placeholder conversation now and then
+            // fetch the partner's profile to fill in their name/avatar so the
+            // roster updates immediately.
+            const partnerId = otherUserId;
+            // Use the exact same conv id used for the existence lookup above so
+            // a message can never create a duplicate roster entry.
+            const placeholder: Conversation = {
+              id: convId,
+              user: {
+                id: partnerId,
+                name: "Nautical Contact",
+                avatar:
+                  "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
+                is_online: false,
+                nautical_presence: "last_anchored",
+              },
               lastMessage: text,
               lastMessageTime: formatConversationTime(createdAt),
               last_message_at: createdAt,
-              unreadCount: isForMe
-                ? (existing.unreadCount || 0) + 1
-                : existing.unreadCount || 0,
+              unreadCount: isForMe ? 1 : 0,
+              messages: [],
             };
 
-            // Move the touched conversation to the top of the list.
-            const rest = list.filter((c) => c.id !== convId);
-            return [updated, ...rest];
+            // Fire-and-forget profile enrichment. We capture the conversation
+            // id so we can fill in the real name/avatar once fetched.
+            chatService
+              .fetchProfileById(partnerId)
+              .then((profile) => {
+                if (!profile || !isMounted) return;
+                setRegisteredProfiles((prev) => {
+                  const exists = (prev || []).some((p) => p.id === profile.id);
+                  return exists ? prev : [profile, ...(prev || [])];
+                });
+                setConversations((prevConv) =>
+                  (prevConv || []).map((c) =>
+                    c.id === convId && c.user?.id === profile.id
+                      ? {
+                          ...c,
+                          user: {
+                            id: profile.id,
+                            name:
+                              profile.full_name ||
+                              profile.username ||
+                              "Nautical Contact",
+                            avatar: profile.avatar_url,
+                            is_online: profile.is_online,
+                            last_seen: profile.last_seen,
+                            nautical_presence:
+                              profile.nautical_presence || "last_anchored",
+                          },
+                        }
+                      : c,
+                  ),
+                );
+              })
+              .catch((e) => {
+                console.warn(
+                  "[ChatsTab] Could not enrich new-contact profile:",
+                  e,
+                );
+              });
+
+            return [placeholder, ...list];
           });
         },
       )
@@ -286,6 +369,41 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark, webrtc 
       supabase.removeChannel(messagesChannel);
     };
   }, [currentUserId]);
+
+  // ---- AUTO-CLEAR UNREAD ON CHAT SELECT ----
+  // When the active conversation changes to a contact, immediately zero out
+  // that conversation's unread badge in local state AND mark the unread
+  // messages as read in the database so the badge stays cleared after reload.
+  useEffect(() => {
+    if (!selectedConvId || !currentUserId) return;
+
+    // Clear the local badge for the now-selected conversation.
+    setConversations((prev) =>
+      (prev || []).map((c) =>
+        c.id === selectedConvId ? { ...c, unreadCount: 0 } : c,
+      ),
+    );
+
+    // Determine the partner (sender) for this conversation so we can mark only
+    // that sender's messages to me as read.
+    const conv = conversations.find((c) => c.id === selectedConvId);
+    const senderId = conv?.user?.id;
+    if (!senderId || !isValidUuid(senderId)) return;
+
+    // Fire-and-forget DB update: mark messages from this sender to me as read.
+    (async () => {
+      try {
+        await supabase
+          .from("messages")
+          .update({ is_read: true })
+          .eq("sender_id", senderId)
+          .eq("receiver_id", currentUserId);
+      } catch (e) {
+        console.warn("[ChatsTab] Could not mark messages read:", e);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConvId]);
 
   if (!currentUser || !currentUser.id) {
     return (
@@ -416,6 +534,18 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark, webrtc 
         }
         return c;
       }),
+    );
+  };
+
+// ---- CLEAR UNREAD ON REPLY ----
+  // Called by ChatView right after the user submits a reply so the sidebar
+  // badge immediately drops to 0 and the unread highlight is removed.
+  const handleClearUnread = (convId: string) => {
+    if (!convId) return;
+    setConversations((prev) =>
+      (prev || []).map((c) =>
+        c.id === convId ? { ...c, unreadCount: 0 } : c,
+      ),
     );
   };
 
@@ -638,7 +768,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({ currentUser, isDark, webrtc 
               const lastTimestamp =
                 conv.last_message_at ||
                 conv.messages?.[conv.messages.length - 1]?.created_at;
-const displayTime = hasMessages
+              const displayTime = hasMessages
                 ? formatConversationTime(lastTimestamp) || conv.lastMessageTime
                 : "";
               const isTypingNow = isUserTyping(conv.user.id, conv.id);
@@ -683,7 +813,13 @@ const displayTime = hasMessages
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="font-semibold text-sm truncate text-slate-900 dark:text-slate-100">
+                      <span
+                        className={`text-sm truncate ${
+                          (conv.unreadCount || 0) > 0
+                            ? "font-semibold text-white"
+                            : "font-normal text-slate-900 dark:text-slate-100"
+                        }`}
+                      >
                         {conv.user.name}
                       </span>
                       {hasMessages && displayTime ? (
@@ -693,17 +829,19 @@ const displayTime = hasMessages
                       ) : null}
                     </div>
                     <div className="flex items-center justify-between">
-<p
+                      <p
                         className={`text-xs truncate ${
                           isTypingNow
                             ? "text-cyan-500 dark:text-cyan-400 italic font-semibold"
-                            : "text-slate-400"
+                            : (conv.unreadCount || 0) > 0
+                              ? "font-semibold text-white"
+                              : "font-normal text-slate-400"
                         }`}
                       >
                         {displaySubtitle}
                       </p>
-                      {conv.unreadCount > 0 && (
-                        <span className="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded-full bg-cyan-500 text-white shrink-0">
+                      {(conv.unreadCount || 0) > 0 && (
+                        <span className="ml-2 px-2 py-0.5 text-xs font-bold rounded-full bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-lg shadow-cyan-500/30 shrink-0">
                           {conv.unreadCount}
                         </span>
                       )}
@@ -727,6 +865,7 @@ const displayTime = hasMessages
             isDark={isDark}
             onBack={() => setSelectedConvId("")}
             onUpdateConversation={handleUpdateConversation}
+            onClearUnread={handleClearUnread}
             webrtc={webrtc}
           />
         ) : (

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { ChatInputBar } from "./chat/ChatInputBar";
 import {
   Send,
   Image as ImageIcon,
@@ -95,8 +96,9 @@ import { BeaconViewer } from "./BeaconViewer";
 import { MessageStatus } from "./MessageStatus";
 import { usePresence } from "../hooks/usePresence";
 import { chatService, filterVanishingMessages } from "../services/chatService";
+import { supabase } from "../lib/supabase";
 import { ollamaService } from "../services/ollamaService";
-import { hymliAiService, HYMLI_AI_BOT_ID } from "../services/hymliAiService";
+import { hymliAiService } from "../services/hymliAiService";
 import {
   AVAILABLE_MODELS,
   checkModelAccess,
@@ -111,7 +113,6 @@ import {
   renderMessageTextWithCodeBlocks,
 } from "./chat/MessageContentRenderer";
 
-import { CallOverlay } from "./CallOverlay";
 import { getLivePresenceLabel } from "../hooks/usePresence";
 import { useTypingIndicator } from "../hooks/useTypingIndicator";
 import { useVoiceRecorder, formatClock } from "../hooks/useVoiceRecorder";
@@ -135,14 +136,13 @@ import {
 } from "./chat/CommandPalette";
 import { MessageActionSheet } from "./chat/MessageActionSheet";
 import { ChatInfoDrawer } from "./chat/ChatInfoDrawer";
-import {
-  AttachmentHub,
-  AttachmentHubResult,
-} from "./chat/AttachmentHub";
-// WebRTC call state. When provided (from MainLayout/global scope), ChatView
-// uses the shared handler so incoming-call signaling remains active across all
-// tabs; when omitted, it falls back to its own local instance.
-import { useWebRTCCall, WebRTCState } from "../hooks/useWebRTCCall";
+import { AttachmentHub, AttachmentHubResult } from "./chat/AttachmentHub";
+// WebRTC call state is owned by the single global CallProvider (mounted at the
+// app root in App.tsx) and shared via useCall(). ChatView consumes the same
+// shared handler so incoming-call signaling remains active across all tabs and
+// there is never a second, independent WebRTC instance.
+import { WebRTCState } from "../hooks/useWebRTCCall";
+import { useCall } from "../context/CallContext";
 
 interface ChatViewProps {
   activeConv: Conversation;
@@ -155,6 +155,9 @@ interface ChatViewProps {
     newMsg?: ChatMessage,
     cleared?: boolean,
   ) => void;
+  // Called when the user sends a reply in this chat so the parent (ChatsTab)
+  // can zero the unread badge + remove the unread highlight immediately.
+  onClearUnread?: (convId: string) => void;
   webrtc?: WebRTCState;
 }
 
@@ -164,19 +167,23 @@ export const ChatView: React.FC<ChatViewProps> = ({
   isDark,
   onBack,
   onUpdateConversation,
+  onClearUnread,
   webrtc: propWebRTC,
 }) => {
   const [messages, setMessages] = useState<ChatMessage[]>(
     activeConv.messages || [],
   );
-  const [inputText, setInputText] = useState("");
-  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
   const [vanishSeconds, setVanishSeconds] = useState<number | null>(null);
 
-  // VOICE NOTE RECORDER STATE (WhatsApp-style inline recorder)
-  const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
-  const [isSendingVoice, setIsSendingVoice] = useState(false);
-  const voiceRecorder = useVoiceRecorder(currentUser.id);
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(
+    null,
+  );
+
+  const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] =
+    useState<boolean>(false);
+  const [isSendingVoice, setIsSendingVoice] = useState<boolean>(false);
+  const [inputText, setInputText] = useState<string>("");
 
   // MENU 1: Attachment Drawer State
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
@@ -196,12 +203,38 @@ export const ChatView: React.FC<ChatViewProps> = ({
     "refine" | "organize" | "insights" | "privacy"
   >("refine");
   // NEW Advanced Message Action Sheet: message it acts on (null = closed)
-  const [actionSheetMessage, setActionSheetMessage] = useState<ChatMessage | null>(null);
+  const [actionSheetMessage, setActionSheetMessage] =
+    useState<ChatMessage | null>(null);
   const [actionSheetPinned, setActionSheetPinned] = useState(false);
 
   const openMessageActionSheet = (msg: ChatMessage) => {
     setActionSheetMessage(msg);
     setActionSheetPinned(pinnedMessage?.id === msg.id);
+  };
+
+  const handleReply = (msgToReply: ChatMessage) => {
+    setReplyingTo(msgToReply);
+    setActiveMsgMenuId(null); // Close action sheet
+  };
+
+  const handleEditMessage = (msgToEdit: ChatMessage) => {
+    setEditingMessage(msgToEdit);
+    setActiveMsgMenuId(null); // Close action sheet
+  };
+
+  const handleDeleteMessage = async (messageId: string) => {
+    const success = await chatService.deleteMessage(messageId);
+    if (success) {
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === messageId ? { ...msg, is_deleted: true, text: "" } : msg,
+        ),
+      );
+      showNotice("Message deleted.");
+    } else {
+      showNotice("Failed to delete message.");
+    }
+    setActiveMsgMenuId(null);
   };
 
   const closeMessageActionSheet = () => {
@@ -232,7 +265,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [passcodeInput, setPasscodeInput] = useState<string>("");
   const [blurredMsgIds, setBlurredMsgIds] = useState<string[]>([]);
 
-// GROUP MANAGEMENT MATRIX MODAL STATE
+  // GROUP MANAGEMENT MATRIX MODAL STATE
   const [isGroupMgmtOpen, setIsGroupMgmtOpen] = useState(false);
 
   // CHAT INFO DRAWER (WhatsApp-style) OPEN STATE + PER-CONVERSATION PREFS
@@ -310,7 +343,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState<boolean>(false);
   const [upgradeTargetModelId, setUpgradeTargetModelId] =
     useState<string>("claude-3-5-sonnet");
-const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
+  const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
   const [isHymliToolsOpen, setIsHymliToolsOpen] = useState<boolean>(false);
   const pdfInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -392,13 +425,13 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
   const [floatingDate, setFloatingDate] = useState<string>("Today");
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
-// Network & WebRTC Hook
+  // Network & WebRTC Hook
   const [pingMs, setPingMs] = useState<number>(42);
-  // Use the globally-managed WebRTC instance (owned by MainLayout) when
-  // available so incoming-call signaling stays active across all tabs.
-  // Falls back to a local instance when this ChatView is rendered standalone.
-  const localWebRTC = useWebRTCCall(currentUser);
-  const webrtc = propWebRTC || localWebRTC;
+  // Use the single globally-managed WebRTC instance from the CallProvider
+  // (mounted at the app root) so incoming-call signaling stays active across
+  // all tabs and no second independent RTC instance is ever created here.
+  const contextCall = useCall();
+  const webrtc = propWebRTC || contextCall;
   const { isUserOnline, onlinePresences } = usePresence(currentUser.id);
   const { isUserTyping, sendTyping } = useTypingIndicator();
 
@@ -458,9 +491,30 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
     }, 3800);
   };
 
+  // ---- FILTER VISIBLE MESSAGES BY ACTIVE CHAT ----
+  // Strictly derive the list shown in the timeline from the active conversation
+  // so stale messages from a previously-open chat can never appear. A message
+  // is visible only when it is between the current user and the active contact
+  // (either direction), or carries the active conversation id.
+  const activeMessages = messages.filter(
+    (m) =>
+      (m.sender_id === currentUser.id &&
+        m.receiver_id === activeConv.user.id) ||
+      (m.sender_id === activeConv.user.id &&
+        m.receiver_id === currentUser.id) ||
+      m.room_id === activeConv.id ||
+      (m as any).conversation_id === activeConv.id,
+  );
+
   // Subscribe to Supabase Messages
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
+
+    // ---- RESET MESSAGES ON CONTACT SWITCH ----
+    // Whenever the active conversation changes, immediately clear the message
+    // list so stale messages from the previous chat never leak into the new
+    // one, then fetch the messages for the now-active conversation.
+    setMessages([]);
 
     const loadMessages = async () => {
       const fetched = await chatService.fetchMessages(
@@ -468,7 +522,15 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
         activeConv.user.id,
       );
       if (fetched && fetched.length > 0) {
-        setMessages(fetched);
+        // Only keep messages that actually belong to the active conversation.
+        const scoped = fetched.filter(
+          (m) =>
+            (m.sender_id === currentUser.id &&
+              m.receiver_id === activeConv.user.id) ||
+            (m.sender_id === activeConv.user.id &&
+              m.receiver_id === currentUser.id),
+        );
+        setMessages(scoped);
       } else if (activeConv.messages && activeConv.messages.length > 0) {
         const formatted = activeConv.messages.map((m) => ({
           ...m,
@@ -488,8 +550,31 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
       currentUser.id,
       activeConv.user.id,
       (newMsg) => {
+        // ---- FILTER REALTIME STREAM ----
+        // Only push a realtime INSERT into the visible list if it actually
+        // belongs to the currently active conversation/user pair.
+        const belongsToActiveChat =
+          (newMsg.sender_id === currentUser.id &&
+            newMsg.receiver_id === activeConv.user.id) ||
+          (newMsg.sender_id === activeConv.user.id &&
+            newMsg.receiver_id === currentUser.id);
+        if (!belongsToActiveChat) return;
+
         setMessages((prev) => {
+          // Dedup by canonical id. Also ignore our own sent messages that we
+          // already placed optimistically (pre-generated UUID) — the realtime
+          // echo of our own insert must not append a second copy.
           if (prev.some((m) => m.id === newMsg.id)) return prev;
+          if (
+            newMsg.sender_id === currentUser.id &&
+            prev.some(
+              (m) =>
+                m.sender_id === newMsg.sender_id &&
+                m.created_at === newMsg.created_at,
+            )
+          ) {
+            return prev;
+          }
           const updated = [...prev, newMsg];
           return filterVanishingMessages(updated);
         });
@@ -580,21 +665,6 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
     return () => clearInterval(pingInterval);
   }, []);
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    setInputText(val);
-
-    // Broadcast typing state: active as soon as any non-space char is present,
-    // and stays active as long as text remains in the box (thinking pauses kept).
-    sendTyping(currentUser.id, activeConv.id, val.trim().length > 0);
-
-    if (val.startsWith("/")) {
-      setShowAiPromptToolbar(true);
-    } else if (showAiPromptToolbar && !val.startsWith("/")) {
-      setShowAiPromptToolbar(false);
-    }
-  };
-
   // Inline list of commands used for the /help notice (kept in sync with the
   // CommandPalette registry).
   const BOT_COMMANDS_INLINE: { command: string }[] = [
@@ -645,6 +715,29 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
     }
   };
 
+  // ---- CLEAR UNREAD ON REPLY ----
+  // When the user submits a reply to this contact, immediately zero the unread
+  // badge in the parent roster and mark the contact's messages as read in the
+  // DB so the highlight clears right away (no refresh needed).
+  const clearUnreadOnReply = useCallback(() => {
+    // 1) Local roster sync: zero the badge + remove the highlight immediately.
+    if (onClearUnread) {
+      onClearUnread(activeConv.id);
+    }
+    // 2) DB mark-as-read for messages from this contact.
+    (async () => {
+      try {
+        await supabase
+          .from("messages")
+          .update({ is_read: true })
+          .eq("sender_id", activeConv.user.id)
+          .eq("receiver_id", currentUser.id);
+      } catch (e) {
+        console.warn("[ChatView] mark-as-read error:", e);
+      }
+    })();
+  }, [onClearUnread, activeConv.id, activeConv.user.id, currentUser.id]);
+
   // Send Message Handler
   const handleSendMessage = async (
     customType?: "text" | "image" | "voice",
@@ -691,42 +784,22 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
     // Box cleared after sending — immediately stop broadcasting typing.
     sendTyping(currentUser.id, activeConv.id, false);
 
+    // Reply submitted → clear the unread badge/highlight for this contact now.
+    clearUnreadOnReply();
+
     if (onUpdateConversation) {
       onUpdateConversation(activeConv.id, newMsg.text, newMsg);
     }
 
     // Hymli AI Assistant Thread Auto-Response Engine
-    const isHymliThread =
-      activeConv.user.id === HYMLI_AI_BOT_ID ||
-      activeConv.user.name === "Hymli AI" ||
-      activeConv.id.toLowerCase().includes("hymli");
-
-    if (isHymliThread) {
-      setTimeout(async () => {
-        try {
-          const hymliReply = await hymliAiService.askHymli(
-            newMsg.text,
-            currentUser.id,
-            activeConv.id,
-            false,
-          );
-          const botMsgData = {
-            room_id: activeConv.id,
-            sender_id: activeConv.user.id,
-            receiver_id: currentUser.id,
-            text: hymliReply,
-            created_at: new Date().toISOString(),
-          };
-          const botReply = await chatService.sendMessage(botMsgData);
-          setMessages((prev) => [...prev, botReply]);
-          if (onUpdateConversation) {
-            onUpdateConversation(activeConv.id, hymliReply, botReply);
-          }
-        } catch (e) {
-          console.warn("[ChatView] Hymli AI response generation error:", e);
-        }
-      }, 400);
-    } else if (autoReplyBot) {
+    //
+    // NOTE: The AI auto-response is now handled centrally inside
+    // `chatService.sendMessage()` (see the "HYMLI AI AUTO-RESPONDER" block in
+    // chatService.messages.ts). It detects Hymli threads, generates the reply,
+    // and persists + broadcasts it so the bubble appears instantly. We removed
+    // the duplicate trigger here to avoid the AI being called TWICE per message
+    // (a race that could cause missing or duplicated replies).
+    if (autoReplyBot) {
       setTimeout(async () => {
         const botMsgData = {
           room_id: activeConv.id,
@@ -857,53 +930,6 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
     } catch (err) {
       console.warn("[ChatView] Attachment hub send error:", err);
       showNotice("Could not send attachment");
-    }
-  };
-
-  // Send a recorded voice note: uploads happened in the recorder hook, so we
-  // just persist the public audio URL as a `type: "voice"` message.
-  const handleSendVoiceNote = async () => {
-    if (isSendingVoice) return;
-    setIsSendingVoice(true);
-    try {
-      const result = await voiceRecorder.stopRecording();
-      if (!result) {
-        setIsSendingVoice(false);
-        return;
-      }
-      const msgData = {
-        room_id: activeConv.id,
-        sender_id: currentUser.id,
-        receiver_id: activeConv.user.id,
-        text: "Voice note",
-        type: "voice" as const,
-        audio_url: result.audioUrl,
-        audio_duration: result.duration,
-        created_at: new Date().toISOString(),
-        reply_to_id: replyingTo?.id,
-        reply_preview: replyingTo
-          ? {
-              id: replyingTo.id,
-              text: replyingTo.text,
-              sender_name: replyingTo.is_me
-                ? currentUser.full_name
-                : activeConv.user.name,
-            }
-          : undefined,
-      };
-      const newMsg = await chatService.sendMessage(msgData);
-      setMessages((prev) => [...prev, newMsg]);
-      setReplyingTo(null);
-      setIsVoiceRecorderOpen(false);
-      showNotice("Voice note sent (E2EE encrypted)");
-      if (onUpdateConversation) {
-        onUpdateConversation(activeConv.id, "🎤 Voice note", newMsg);
-      }
-    } catch (err) {
-      console.warn("[ChatView] Failed to send voice note:", err);
-      showNotice("Could not send voice note");
-    } finally {
-      setIsSendingVoice(false);
     }
   };
 
@@ -1256,28 +1282,7 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
     <div
       className={`flex-1 flex flex-col h-full ${getWallpaperStyle()} relative overflow-hidden select-none`}
     >
-      {/* WebRTC Call Overlay */}
-      {(webrtc.callState !== "idle" || webrtc.incomingCall) && (
-        <CallOverlay
-          currentUser={currentUser}
-          callState={webrtc.callState}
-          callType={webrtc.callType}
-          targetUser={webrtc.targetUser}
-          incomingCall={webrtc.incomingCall}
-          localStream={webrtc.localStream}
-          remoteStream={webrtc.remoteStream}
-          isMuted={webrtc.isMuted}
-          isCameraOff={webrtc.isCameraOff}
-          callDuration={webrtc.callDuration}
-          onAccept={webrtc.acceptCall}
-          onDecline={webrtc.declineCall}
-          onEndCall={webrtc.endCall}
-          onToggleMute={webrtc.toggleMute}
-          onToggleCamera={webrtc.toggleCamera}
-        />
-      )}
-
-      {/* BEACON Creation + Viewing Modals */}
+{/* BEACON Creation + Viewing Modals */}
       <BeaconModal
         isOpen={isBeaconModalOpen}
         onClose={() => setIsBeaconModalOpen(false)}
@@ -1679,11 +1684,14 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
           </span>
         </div>
 
-        {messages.map((msg, index) => {
-          // Robust ownership check: prefer the stored `is_me` flag, but fall
-          // back to comparing sender_id against the current user so AI/bot
-          // messages (sender_id = bot ID) reliably render on the left.
-          const isMe = msg.is_me ?? msg.sender_id === currentUser.id;
+{activeMessages.map((msg, index) => {
+          // Sender identification: normalize BOTH sides to strings so a UUID
+          // object, casing mismatch, or missing sender_id can never flip the
+          // alignment. Messages from the current user render RIGHT (sent);
+          // all others — including AI/bot messages (sender_id = bot ID) —
+          // render LEFT (received).
+const isMe =
+            String(msg.sender_id || "") === String(currentUser?.id || "");
           const msgDateLabel = getMessageDateLabel(msg.created_at);
           const prevMsgDateLabel =
             index > 0
@@ -1711,11 +1719,13 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
                 </div>
               )}
 
-              <div
+<div
                 id={`msg-${msg.id}`}
                 ref={(node) => observeMessageRef(node, msg)}
                 onDoubleClick={() => handleDoubleTap(msg.id)}
-                className={`flex flex-col ${isMe ? "items-end" : "items-start"} group transition-all duration-300 relative ${
+                className={`flex flex-col w-full ${
+                  isMe ? "justify-end items-end" : "justify-start items-start"
+                } group transition-all duration-300 relative ${
                   isHighlighted
                     ? "scale-105 ring-2 ring-cyan-400 rounded-2xl p-1"
                     : ""
@@ -2447,104 +2457,7 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
           </div>
         )}
 
-        {/* INLINE VOICE NOTE RECORDER PANEL (WhatsApp-style) */}
-        <AnimatePresence>
-          {isVoiceRecorderOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 12 }}
-              className="p-3 bg-slate-900/95 border border-cyan-500/40 rounded-2xl shadow-2xl backdrop-blur-2xl flex items-center gap-3"
-            >
-              {!voiceRecorder.isRecording ? (
-                <>
-                  <button
-                    onClick={async () => {
-                      const ok = await voiceRecorder.startRecording();
-                      if (!ok && voiceRecorder.error) {
-                        showNotice(voiceRecorder.error);
-                      }
-                    }}
-                    disabled={isSendingVoice}
-                    className="shrink-0 px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/20 hover:scale-105 transition-all disabled:opacity-50 cursor-pointer"
-                  >
-                    <Mic className="w-4 h-4" />
-                    <span>
-                      {isSendingVoice ? "Uploading..." : "Tap to Record"}
-                    </span>
-                  </button>
-                  <span className="text-[11px] text-slate-400">
-                    Record a voice note to send to{" "}
-                    <span className="text-cyan-300 font-bold">
-                      {activeConv.user.name}
-                    </span>
-                  </span>
-                  <button
-                    onClick={() => {
-                      voiceRecorder.cancelRecording();
-                      setIsVoiceRecorderOpen(false);
-                    }}
-                    className="ml-auto p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Close recorder"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  {/* Live pulsing red dot + timer */}
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="relative flex w-3 h-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75" />
-                      <span className="relative inline-flex rounded-full w-3 h-3 bg-rose-500" />
-                    </span>
-                    <span className="text-sm font-mono font-bold text-rose-300 tabular-nums">
-                      {formatClock(voiceRecorder.elapsedSeconds)}
-                    </span>
-                  </div>
-
-                  {/* Mini live waveform visualization */}
-                  <div className="flex-1 flex items-center gap-[3px] h-6 overflow-hidden">
-                    {Array.from({ length: 32 }).map((_, i) => (
-                      <span
-                        key={i}
-                        className="flex-1 rounded-full bg-cyan-400 animate-waveform"
-                        style={{
-                          animationDelay: `${i * 0.06}s`,
-                          height: `${6 + ((i * 37) % 20)}px`,
-                        }}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Cancel */}
-                  <button
-                    onClick={() => {
-                      voiceRecorder.cancelRecording();
-                      setIsVoiceRecorderOpen(false);
-                    }}
-                    className="shrink-0 px-3 py-2 rounded-xl bg-slate-800 text-slate-300 text-xs font-bold flex items-center gap-1.5 hover:bg-rose-500/20 hover:text-rose-300 transition-colors cursor-pointer"
-                    title="Cancel recording"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Cancel</span>
-                  </button>
-
-                  {/* Stop & Send */}
-                  <button
-                    onClick={handleSendVoiceNote}
-                    disabled={isSendingVoice}
-                    className="shrink-0 px-4 py-2 rounded-xl bg-cyan-500 text-slate-950 text-xs font-extrabold flex items-center gap-1.5 shadow-lg shadow-cyan-500/30 hover:bg-cyan-400 transition-all disabled:opacity-50 cursor-pointer"
-                    title="Stop recording & send"
-                  >
-                    <Send className="w-3.5 h-3.5" />
-                    <span>{isSendingVoice ? "Uploading..." : "Send"}</span>
-                  </button>
-                </>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {/* INLINE VOICE NOTE RECORDER PANEL (handled inside ChatInputBar) */}
 
         {/* INPUT CONTROL FIELD */}
         <div className="flex items-center gap-2">
@@ -2618,7 +2531,7 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
           >
             <FileText className="w-5 h-5 text-amber-400" />
           </button>
-<input
+          <input
             type="file"
             ref={pdfInputRef}
             accept=".pdf,application/pdf"
@@ -2639,80 +2552,20 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
             <Bot className="w-5 h-5" />
           </button>
 
-          <input
-            type="text"
-            placeholder="Type encrypted message or / for AI prompts..."
-            value={inputText}
-            onChange={handleInputChange}
-            onKeyDown={(e) => {
-              if (showAiPromptToolbar && e.key === "Escape") {
-                e.preventDefault();
-                setShowAiPromptToolbar(false);
-                return;
-              }
-              if (showAiPromptToolbar && filteredCommands.length > 0) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setActiveCommandIndex(
-                    (prev) => (prev + 1) % filteredCommands.length,
-                  );
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setActiveCommandIndex(
-                    (prev) =>
-                      (prev - 1 + filteredCommands.length) %
-                      filteredCommands.length,
-                  );
-                  return;
-                }
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  const sel = filteredCommands[activeCommandIndex];
-                  if (sel) {
-                    handleCommandSelect(sel);
-                  }
-                  return;
-                }
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                handleSendMessage();
-              }
-            }}
-            className="flex-1 p-2.5 px-4 rounded-2xl bg-slate-950 border border-slate-800 focus:border-cyan-500 focus:outline-none text-sm text-slate-100 placeholder-slate-500"
+          <ChatInputBar
+            activeConv={activeConv}
+            currentUser={currentUser}
+            onUpdateConversation={onUpdateConversation}
+            sendTyping={sendTyping}
+            setMessages={setMessages}
+            scrollToBottom={scrollToBottom}
+            replyingTo={replyingTo}
+            setReplyingTo={setReplyingTo}
+            editingMessage={editingMessage}
+            setEditingMessage={setEditingMessage}
+            showAiPromptToolbar={showAiPromptToolbar}
+            setShowAiPromptToolbar={setShowAiPromptToolbar}
           />
-
-          {/* VOICE NOTE RECORDER TOGGLE (WhatsApp-style mic button) */}
-          <button
-            onClick={() => {
-              // Opening the recorder while already recording would be confusing;
-              // if open, just close it. Otherwise open the inline recorder panel.
-              if (isVoiceRecorderOpen) {
-                voiceRecorder.cancelRecording();
-                setIsVoiceRecorderOpen(false);
-              } else {
-                setIsVoiceRecorderOpen(true);
-              }
-            }}
-            className={`p-2.5 rounded-2xl transition-all cursor-pointer ${
-              isVoiceRecorderOpen
-                ? "bg-rose-500 text-white shadow-lg shadow-rose-500/30 animate-pulse"
-                : "bg-slate-800 text-cyan-400 hover:bg-slate-700"
-            }`}
-            title="Record voice note"
-          >
-            <Mic className="w-5 h-5" />
-          </button>
-
-<button
-            onClick={() => handleSendMessage()}
-            disabled={!inputText.trim()}
-            className="p-2.5 rounded-2xl bg-cyan-500 text-slate-950 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-cyan-400 transition-colors shadow-lg shadow-cyan-500/20 font-bold"
-          >
-            <Send className="w-5 h-5" />
-          </button>
         </div>
       </div>
 
@@ -2723,8 +2576,12 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
           onClose={closeMessageActionSheet}
           message={actionSheetMessage}
           currentUser={currentUser}
-          targetUser={activeConv.user}
-          isMe={actionSheetMessage.is_me ?? actionSheetMessage.sender_id === currentUser.id}
+targetUser={activeConv.user}
+          isMe={
+            actionSheetMessage.is_me ??
+            String(actionSheetMessage.sender_id || "") ===
+              String(currentUser?.id || "")
+          }
           isPinned={actionSheetPinned}
           draftConversations={activeConv ? [activeConv] : []}
           availableContacts={[
@@ -2771,7 +2628,12 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
           }}
           onUnpinned={() => {
             chatService
-              .pinMessage(actionSheetMessage.id, currentUser.id, "24 Hours", false)
+              .pinMessage(
+                actionSheetMessage.id,
+                currentUser.id,
+                "24 Hours",
+                false,
+              )
               .then(() => {
                 setPinnedMessage(null);
                 setActionSheetPinned(false);
@@ -2797,6 +2659,7 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
             // Start a 1-on-1 with the selected contact (quote context).
             showNotice(`Replying privately to ${targetProfile.full_name}`);
           }}
+          onDeleteMessage={handleDeleteMessage}
         />
       )}
 
@@ -2820,7 +2683,7 @@ const [isCanvasOpen, setIsCanvasOpen] = useState<boolean>(false);
         }}
       />
 
-{/* GROUP MANAGEMENT MATRIX MODAL */}
+      {/* GROUP MANAGEMENT MATRIX MODAL */}
       <GroupManagementModal
         isOpen={isGroupMgmtOpen}
         onClose={() => setIsGroupMgmtOpen(false)}

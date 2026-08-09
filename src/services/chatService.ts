@@ -48,7 +48,7 @@ import {
   fetchEditHistory,
 } from "./chatService.messages";
 import { fetchConversations } from "./chatService.conversations";
-import { fetchAllProfiles } from "./chatService.profiles";
+import { fetchAllProfiles, fetchProfileById } from "./chatService.profiles";
 import { recordCallLog } from "./chatService.calls";
 import { callChatEdgeProxy } from "./chatService.edge";
 
@@ -77,6 +77,7 @@ export type {
  */
 export const chatService = {
   fetchAllProfiles,
+  fetchProfileById,
   fetchConversations,
   fetchMessages,
   sendMessage,

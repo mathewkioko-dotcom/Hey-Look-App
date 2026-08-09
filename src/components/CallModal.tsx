@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mic,
@@ -24,7 +24,8 @@ interface CallModalProps {
     name: string;
     avatar: string;
   };
-  currentUser: Profile;
+currentUser: Profile;
+  localStream: MediaStream | null;
   onEndCall: (durationSec: number) => void;
   isDark: boolean;
 }
@@ -34,9 +35,11 @@ export const CallModal: React.FC<CallModalProps> = ({
   callType,
   targetUser,
   currentUser,
+  localStream,
   onEndCall,
   isDark,
 }) => {
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(callType === 'audio');
   const [callDuration, setCallDuration] = useState(0);
@@ -58,7 +61,7 @@ export const CallModal: React.FC<CallModalProps> = ({
     return () => clearTimeout(connectTimer);
   }, [isOpen]);
 
-  useEffect(() => {
+useEffect(() => {
     if (callState !== 'connected' || !isOpen) return;
 
     const interval = setInterval(() => {
@@ -67,6 +70,14 @@ export const CallModal: React.FC<CallModalProps> = ({
 
     return () => clearInterval(interval);
   }, [callState, isOpen]);
+
+  // Bind the local media stream to the local PIP <video> element so the
+  // camera preview renders instantly.
+  useEffect(() => {
+    if (localVideoRef.current && localStream) {
+      localVideoRef.current.srcObject = localStream;
+    }
+  }, [localStream]);
 
   if (!isOpen) return null;
 
@@ -157,10 +168,12 @@ export const CallModal: React.FC<CallModalProps> = ({
             <div className="absolute bottom-24 right-6 z-20 w-36 h-48 sm:w-44 sm:h-56 rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl bg-slate-950/80 backdrop-blur-md">
               {!isVideoOff ? (
                 <div className="relative w-full h-full">
-                  <img
-                    src={currentUser.avatar_url}
-                    alt="Local feed"
-                    className="w-full h-full object-cover"
+                  <video
+                    ref={localVideoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-cover rounded-xl transform -scale-x-100"
                   />
                   <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/60 text-[10px] text-white font-mono">
                     You (Local)

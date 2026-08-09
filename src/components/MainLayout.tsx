@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import React, { useState } from "react";
+import { motion, AnimatePresence } from "motion/react";
 import {
   MessageCircle,
   Newspaper,
@@ -10,16 +10,16 @@ import {
   Sun,
   Moon,
   Sparkles,
-  LogOut
-} from 'lucide-react';
-import { ActiveTab, Profile } from '../types';
-import { ChatsTab } from './tabs/ChatsTab';
-import { FeedTab } from './tabs/FeedTab';
-import { ReelsTab } from './tabs/ReelsTab';
-import { ProfileTab } from './tabs/ProfileTab';
-import { AuthScreen } from './AuthScreen';
-import { useWebRTCCall } from '../hooks/useWebRTCCall';
-import { CallOverlay } from './CallOverlay';
+  LogOut,
+} from "lucide-react";
+import { ActiveTab, Profile } from "../types";
+import { ChatsTab } from "./tabs/ChatsTab";
+import { FeedTab } from "./tabs/FeedTab";
+import { ReelsTab } from "./tabs/ReelsTab";
+import { ProfileTab } from "./tabs/ProfileTab";
+import { AuthScreen } from "./AuthScreen";
+import { useCall } from "../context/CallContext";
+import { CallOverlay } from "./CallOverlay";
 
 interface MainLayoutProps {
   currentUser: Profile;
@@ -36,16 +36,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   isDark,
   onToggleTheme,
 }) => {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('chats');
-  const [globalSearch, setGlobalSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<ActiveTab>("chats");
+  const [globalSearch, setGlobalSearch] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
 
   // ---- GLOBAL WEBRTC CALL STATE ----
-  // Instantiated once at the app root so the incoming-call signaling listener
-  // and ringing chime stay ACTIVE across all tabs (Chats, Feed, Reels, Profile),
-  // not just when a conversation is open.
-  const webrtc = useWebRTCCall(currentUser);
-
+  // Consumed from the shared CallProvider (mounted at the app root in App.tsx)
+  // so the incoming-call signaling listener and ringing chime stay ACTIVE
+  // across all tabs (Chats, Feed, Reels, Profile) — a single shared instance,
+  // not a separate one created here.
+  const webrtc = useCall();
 
   // Authentication & Routing Fallback
   if (!currentUser || !currentUser.id) {
@@ -61,15 +61,15 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   return (
     <div
       className={`min-h-screen flex flex-col transition-colors duration-300 ${
-        isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'
+        isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
       }`}
     >
       {/* TOP GLOBAL HEADER BAR */}
       <header
         className={`sticky top-0 z-40 border-b backdrop-blur-xl px-4 py-3 transition-colors ${
           isDark
-            ? 'bg-slate-900/80 border-slate-800'
-            : 'bg-white/80 border-slate-200 shadow-sm'
+            ? "bg-slate-900/80 border-slate-800"
+            : "bg-white/80 border-slate-200 shadow-sm"
         }`}
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
@@ -78,7 +78,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 p-0.5 shadow-md shadow-indigo-500/20">
               <div
                 className={`w-full h-full rounded-[14px] flex items-center justify-center ${
-                  isDark ? 'bg-slate-900' : 'bg-white'
+                  isDark ? "bg-slate-900" : "bg-white"
                 }`}
               >
                 <Sparkles className="w-5 h-5 text-indigo-500" />
@@ -126,30 +126,42 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
                     className={`absolute right-0 mt-2 w-80 rounded-3xl p-4 shadow-2xl border z-50 ${
-                      isDark ? 'bg-slate-900 border-slate-800' : 'bg-white border-slate-200'
+                      isDark
+                        ? "bg-slate-900 border-slate-800"
+                        : "bg-white border-slate-200"
                     }`}
                   >
                     <div className="flex items-center justify-between pb-2 mb-2 border-b border-slate-100 dark:border-slate-800">
-                      <h4 className="font-bold text-xs uppercase tracking-wider">Notifications</h4>
-                      <span className="text-[10px] text-indigo-500 font-semibold">Mark read</span>
+                      <h4 className="font-bold text-xs uppercase tracking-wider">
+                        Notifications
+                      </h4>
+                      <span className="text-[10px] text-indigo-500 font-semibold">
+                        Mark read
+                      </span>
                     </div>
                     <div className="space-y-3 text-xs">
                       <div className="flex items-start gap-2.5">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
                         <div>
                           <p className="font-medium">
-                            <span className="font-bold">Sara Chen</span> sent you a message in WhatsApp mode
+                            <span className="font-bold">Sara Chen</span> sent
+                            you a message in WhatsApp mode
                           </p>
-                          <span className="text-[10px] text-slate-400">5m ago</span>
+                          <span className="text-[10px] text-slate-400">
+                            5m ago
+                          </span>
                         </div>
                       </div>
                       <div className="flex items-start gap-2.5">
                         <span className="w-2 h-2 rounded-full bg-pink-500 mt-1.5 shrink-0" />
                         <div>
                           <p className="font-medium">
-                            <span className="font-bold">Alex Rivera</span> liked your Reel post
+                            <span className="font-bold">Alex Rivera</span> liked
+                            your Reel post
                           </p>
-                          <span className="text-[10px] text-slate-400">1h ago</span>
+                          <span className="text-[10px] text-slate-400">
+                            1h ago
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -163,17 +175,21 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               onClick={onToggleTheme}
               className={`p-2.5 rounded-2xl transition-all ${
                 isDark
-                  ? 'bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700'
-                  : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+                  ? "bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700"
+                  : "bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
               }`}
-              title={isDark ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+              title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
             >
-              {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+              {isDark ? (
+                <Sun className="w-5 h-5" />
+              ) : (
+                <Moon className="w-5 h-5" />
+              )}
             </button>
 
             {/* User Avatar Badge Button */}
             <button
-              onClick={() => setActiveTab('profile')}
+              onClick={() => setActiveTab("profile")}
               className="relative p-0.5 rounded-full bg-gradient-to-tr from-indigo-500 to-pink-500 hover:scale-105 transition-transform"
             >
               <img
@@ -200,16 +216,20 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             transition={{ duration: 0.2 }}
             className="h-full"
           >
-{activeTab === 'chats' && (
+            {activeTab === "chats" && (
               <ChatsTab
                 currentUser={currentUser}
                 isDark={isDark}
                 webrtc={webrtc}
               />
             )}
-            {activeTab === 'feed' && <FeedTab currentUser={currentUser} isDark={isDark} />}
-            {activeTab === 'reels' && <ReelsTab currentUser={currentUser} isDark={isDark} />}
-            {activeTab === 'profile' && (
+            {activeTab === "feed" && (
+              <FeedTab currentUser={currentUser} isDark={isDark} />
+            )}
+            {activeTab === "reels" && (
+              <ReelsTab currentUser={currentUser} isDark={isDark} />
+            )}
+            {activeTab === "profile" && (
               <ProfileTab
                 currentUser={currentUser}
                 onUpdateProfile={onUpdateProfile}
@@ -226,18 +246,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       <nav
         className={`fixed bottom-0 inset-x-0 z-50 border-t backdrop-blur-2xl transition-colors ${
           isDark
-            ? 'bg-slate-900/90 border-slate-800/80 shadow-2xl'
-            : 'bg-white/90 border-slate-200 shadow-lg'
+            ? "bg-slate-900/90 border-slate-800/80 shadow-2xl"
+            : "bg-white/90 border-slate-200 shadow-lg"
         }`}
       >
         <div className="max-w-md mx-auto flex items-center justify-around p-2 py-2.5">
           {/* Tab 1: WhatsApp Chats */}
           <button
-            onClick={() => setActiveTab('chats')}
+            onClick={() => setActiveTab("chats")}
             className={`flex flex-col items-center gap-1 p-1.5 px-4 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'chats'
-                ? 'text-emerald-500 font-bold bg-emerald-500/10 scale-105'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              activeTab === "chats"
+                ? "text-emerald-500 font-bold bg-emerald-500/10 scale-105"
+                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >
             <div className="relative">
@@ -249,11 +269,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
           {/* Tab 2: Facebook Feed */}
           <button
-            onClick={() => setActiveTab('feed')}
+            onClick={() => setActiveTab("feed")}
             className={`flex flex-col items-center gap-1 p-1.5 px-4 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'feed'
-                ? 'text-blue-500 font-bold bg-blue-500/10 scale-105'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              activeTab === "feed"
+                ? "text-blue-500 font-bold bg-blue-500/10 scale-105"
+                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >
             <Newspaper className="w-5 h-5" />
@@ -262,11 +282,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
           {/* Tab 3: Instagram Reels */}
           <button
-            onClick={() => setActiveTab('reels')}
+            onClick={() => setActiveTab("reels")}
             className={`flex flex-col items-center gap-1 p-1.5 px-4 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'reels'
-                ? 'text-pink-500 font-bold bg-pink-500/10 scale-105'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              activeTab === "reels"
+                ? "text-pink-500 font-bold bg-pink-500/10 scale-105"
+                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >
             <Film className="w-5 h-5" />
@@ -275,18 +295,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
           {/* Tab 4: Profile */}
           <button
-            onClick={() => setActiveTab('profile')}
+            onClick={() => setActiveTab("profile")}
             className={`flex flex-col items-center gap-1 p-1.5 px-4 rounded-2xl transition-all cursor-pointer ${
-              activeTab === 'profile'
-                ? 'text-indigo-500 font-bold bg-indigo-500/10 scale-105'
-                : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'
+              activeTab === "profile"
+                ? "text-indigo-500 font-bold bg-indigo-500/10 scale-105"
+                : "text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
             }`}
           >
             <User className="w-5 h-5" />
             <span className="text-[11px] font-semibold">Profile</span>
           </button>
         </div>
-</nav>
+      </nav>
 
       {/* GLOBAL CALL OVERLAY — renders above all tabs so incoming calls are
           visible & answerable from anywhere in the app */}

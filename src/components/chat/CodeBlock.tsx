@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Play, Copy, Check, Terminal, Loader2 } from 'lucide-react';
-import { runPythonCode } from '../../lib/plugins/codeInterpreter';
+import React, { useState } from "react";
+import { Play, Copy, Check, Terminal, Loader2 } from "lucide-react";
+import { runPythonCode } from "../../lib/plugins/codeInterpreter";
 
 interface CodeBlockProps {
   code: string;
@@ -9,11 +9,11 @@ interface CodeBlockProps {
 
 export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
   const [output, setOutput] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [isRunning, setIsRunning] = useState<boolean>(false);
+  const [copied, setCopied] = useState<boolean>(false);
 
-  const cleanLang = (language || '').toLowerCase().trim();
-  const isPython = cleanLang === 'python' || cleanLang === 'py';
+  const cleanLang: string = (language || "").toLowerCase().trim();
+  const isPython = cleanLang === "python" || cleanLang === "py";
 
   const handleRun = async () => {
     setIsRunning(true);
@@ -35,7 +35,9 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
       <div className="flex justify-between items-center px-4 py-2 bg-slate-900/90 border-b border-slate-800 text-xs text-slate-400">
         <div className="flex items-center gap-2">
           <Terminal className="w-3.5 h-3.5 text-cyan-400" />
-          <span className="font-semibold text-slate-300 uppercase tracking-wider">{language || 'code'}</span>
+          <span className="font-semibold text-slate-300 uppercase tracking-wider">
+            {language || "code"}
+          </span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -44,8 +46,12 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
             className="px-2 py-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition flex items-center gap-1 cursor-pointer"
             title="Copy code"
           >
-            {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-            <span>{copied ? 'Copied' : 'Copy'}</span>
+            {copied ? (
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+            ) : (
+              <Copy className="w-3.5 h-3.5" />
+            )}
+            <span>{copied ? "Copied" : "Copy"}</span>
           </button>
 
           {isPython && (
@@ -82,7 +88,9 @@ export const CodeBlock: React.FC<CodeBlockProps> = ({ code, language }) => {
             <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block"></span>
             Terminal Output:
           </div>
-          <pre className="whitespace-pre-wrap text-emerald-400 font-mono bg-black/50 p-2.5 rounded-xl border border-slate-900 overflow-x-auto">
+          <pre
+            className={`whitespace-pre-wrap ${output.startsWith("Error:") ? "text-red-500" : "text-emerald-400"} font-mono bg-black/50 p-2.5 rounded-xl border border-slate-900 overflow-x-auto`}
+          >
             {output}
           </pre>
         </div>

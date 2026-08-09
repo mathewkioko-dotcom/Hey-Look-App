@@ -77,6 +77,7 @@ export interface ChatMessage {
   };
   metadata?: MessageMetadata;
   is_edited?: boolean;
+  is_deleted?: boolean;
 }
 
 export interface Conversation {
@@ -240,10 +241,7 @@ export type OAuthProvider =
 // ============================================================================
 
 /** Sub-category groups for the advanced emoji reaction drawer */
-export type ReactionCategory =
-  | "Frequently Used"
-  | "Animals"
-  | "Objects";
+export type ReactionCategory = "Frequently Used" | "Animals" | "Objects";
 
 /** Export file formats for the Export Message action */
 export type ExportFormat = "TXT" | "JSON" | "PDF";
@@ -324,10 +322,18 @@ export type DisappearingTimer = "Off" | "24 Hours" | "7 Days" | "90 Days";
 export type MuteDuration = "1 Hour" | "8 Hours" | "1 Week" | "Always";
 
 /** Sub-category filters for the Media, Links & Docs viewer */
-export type MediaFilter = "Photos" | "Videos" | "Audio Clips" | "Links" | "Documents";
+export type MediaFilter =
+  | "Photos"
+  | "Videos"
+  | "Audio Clips"
+  | "Links"
+  | "Documents";
 
 /** Wallpaper style category selector */
-export type WallpaperCategory = "Solid Colors" | "Dark Gradients" | "Custom Gallery";
+export type WallpaperCategory =
+  | "Solid Colors"
+  | "Dark Gradients"
+  | "Custom Gallery";
 
 /** A selected wallpaper theme */
 export interface WallpaperChoice {
@@ -376,4 +382,3 @@ export interface ConversationPreferences {
   isBlocked?: boolean;
   blockReason?: string;
 }
-

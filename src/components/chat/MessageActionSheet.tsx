@@ -106,6 +106,7 @@ interface MessageActionSheetProps {
   onUnpinned?: () => void;
   onEdited?: (newText: string) => void;
   onEditHistorySaved?: (previousText: string) => void;
+  onDeleteMessage?: (messageId: string) => void; // New prop for deleting messages
   draftConversations?: Conversation[];
   availableContacts?: Profile[];
   onReplyPrivately?: (targetProfile: Profile) => void;
@@ -143,6 +144,7 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
   onUnpinned,
   onEdited,
   onEditHistorySaved,
+  onDeleteMessage,
   draftConversations = [],
   availableContacts = [],
   onReplyPrivately,
@@ -266,10 +268,7 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
         message.text,
         translateLang,
       );
-      onTranslated?.(
-        translateLang,
-        result.result || "Translation unavailable",
-      );
+      onTranslated?.(translateLang, result.result || "Translation unavailable");
       flash(`Translated to ${translateLang}`);
     } catch {
       // Localized fallback when Ollama is unavailable
@@ -511,6 +510,14 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
                   />
                   <ActionRow
                     icon={<CornerDownRight className="w-4 h-4 text-cyan-400" />}
+                    label="Reply"
+                    onClick={() => {
+                      onReply?.();
+                      onClose();
+                    }}
+                  />
+                  <ActionRow
+                    icon={<CornerDownRight className="w-4 h-4 text-cyan-400" />}
                     label="Reply Privately"
                     onClick={() => setView("reply")}
                   />
@@ -547,14 +554,32 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
                     <ActionRow
                       icon={<Edit3 className="w-4 h-4 text-purple-400" />}
                       label="Edit Message"
-                      onClick={() => setView("edit")}
+                      onClick={() => {
+                        setView("edit");
+                        // This will be handled by ChatView.tsx
+                        // onEdited will be called from ChatView.tsx after editing is complete
+                      }}
+                    />
+                  )}
+                  {isMe && (
+                    <ActionRow
+                      icon={<Trash2 className="w-4 h-4 text-rose-400" />}
+                      label="Delete Message"
+                      onClick={() => {
+                        if (message) {
+                          onDeleteMessage?.(message.id);
+                          onClose();
+                        }
+                      }}
                     />
                   )}
 
                   {/* Divider + More Options */}
                   <div className="pt-1 mt-1 border-t border-slate-800">
                     <ActionRow
-                      icon={<MoreHorizontal className="w-4 h-4 text-slate-400" />}
+                      icon={
+                        <MoreHorizontal className="w-4 h-4 text-slate-400" />
+                      }
                       label="More Options"
                       onClick={() => setView("more")}
                     />
@@ -800,10 +825,7 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
               {/* TRANSLATE VIEW */}
               {view === "translate" && (
                 <div className="space-y-2">
-                  <SubHeader
-                    title="Translate"
-                    onBack={() => setView("main")}
-                  />
+                  <SubHeader title="Translate" onBack={() => setView("main")} />
                   <p className="text-xs text-slate-400 px-1">
                     Translate this message to:
                   </p>
@@ -837,7 +859,9 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
                     disabled={isTranslating}
                     className="w-full py-2.5 rounded-xl bg-emerald-500 text-slate-950 text-sm font-bold hover:bg-emerald-400 transition-colors disabled:opacity-50 cursor-pointer"
                   >
-                    {isTranslating ? "Translating..." : `Translate to ${translateLang}`}
+                    {isTranslating
+                      ? "Translating..."
+                      : `Translate to ${translateLang}`}
                   </button>
                 </div>
               )}
@@ -915,7 +939,10 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
               {/* PIN VIEW */}
               {view === "pin" && (
                 <div className="space-y-2">
-                  <SubHeader title="Pin Message" onBack={() => setView("main")} />
+                  <SubHeader
+                    title="Pin Message"
+                    onBack={() => setView("main")}
+                  />
                   <p className="text-xs text-slate-400 px-1">
                     Pin this message to the conversation for:
                   </p>
@@ -955,7 +982,10 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
               {/* EDIT VIEW */}
               {view === "edit" && (
                 <div className="space-y-2">
-                  <SubHeader title="Edit Message" onBack={() => setView("main")} />
+                  <SubHeader
+                    title="Edit Message"
+                    onBack={() => setView("main")}
+                  />
                   <textarea
                     value={editText}
                     onChange={(e) => setEditText(e.target.value)}
@@ -1015,7 +1045,10 @@ export const MessageActionSheet: React.FC<MessageActionSheetProps> = ({
               {/* MORE OPTIONS VIEW */}
               {view === "more" && (
                 <div className="space-y-1">
-                  <SubHeader title="More Options" onBack={() => setView("main")} />
+                  <SubHeader
+                    title="More Options"
+                    onBack={() => setView("main")}
+                  />
                   <ActionRow
                     icon={<Flag className="w-4 h-4 text-rose-400" />}
                     label="Report Message"
