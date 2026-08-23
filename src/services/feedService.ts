@@ -8,6 +8,7 @@ export interface StoryItem {
   user_avatar: string;
   media_url?: string;
   created_at: string;
+  privacy_level?: PrivacyLevel;
 }
 
 /**
@@ -408,7 +409,7 @@ export const feedService = {
   /**
    * Fetch active stories
    */
-  async fetchStories(): Promise<StoryItem[]> {
+  async fetchStories(currentUserId: string): Promise<StoryItem[]> {
     try {
       const { data, error } = await supabase
         .from('stories')
@@ -417,7 +418,14 @@ export const feedService = {
 
       if (error || !data) return [];
 
-      const userIds = Array.from(new Set(data.map((s: any) => s.user_id).filter(Boolean)));
+      const visibleStories = data.filter((story: any) =>
+        story.user_id === currentUserId ||
+        story.privacy_level === 'Public' ||
+        story.privacy_level === 'Anchors Only' ||
+        !story.privacy_level
+      );
+
+      const userIds = Array.from(new Set(visibleStories.map((s: any) => s.user_id).filter(Boolean)));
       let profileMap: Record<string, any> = {};
       if (userIds.length > 0) {
         const { data: profiles } = await supabase.from('profiles').select('*').in('id', userIds);
@@ -426,7 +434,7 @@ export const feedService = {
         }
       }
 
-      return data.map((s: any) => {
+      return visibleStories.map((s: any) => {
         const p = profileMap[s.user_id] || {};
         return {
           id: s.id,
@@ -435,6 +443,7 @@ export const feedService = {
           user_avatar: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
           media_url: s.media_url || s.image_url || s.cover_url,
           created_at: s.created_at,
+          privacy_level: s.privacy_level || 'Public',
         };
       });
     } catch (err) {
@@ -444,16 +453,75 @@ export const feedService = {
   },
 
   /**
+   * Upload story media to Supabase Storage when a local image is supplied.
+   * Data URLs are converted to blob/file and stored in a dedicated public bucket.
+   */
+  async uploadStoryMedia(userId: string, mediaUrl: string): Promise<string> {
+    try {
+      if (!mediaUrl || !mediaUrl.startsWith('data:image/')) {
+        return mediaUrl;
+      }
+
+      const response = await fetch(mediaUrl);
+      const blob = await response.blob();
+      const mimeType = blob.type || 'image/jpeg';
+      const fileExt = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+      const filePath = `story-media/${userId}/${Date.now()}.${fileExt}`;
+
+      const { data, error } = await supabase.storage
+        .from('story-media')
+        .upload(filePath, blob, {
+          contentType: mimeType,
+          upsert: true,
+        });
+
+      if (error) {
+        console.warn('[FeedService] Story storage upload failed:', error.message);
+        return mediaUrl;
+      }
+
+      const { data: publicData } = supabase.storage.from('story-media').getPublicUrl(data.path);
+      return publicData.publicUrl || mediaUrl;
+    } catch (err) {
+      console.warn('[FeedService] Story media upload exception:', err);
+      return mediaUrl;
+    }
+  },
+
+  /**
    * Create a new story
    */
-  async createStory(userId: string, mediaUrl: string): Promise<boolean> {
+  async createStory(
+    userId: string,
+    mediaUrl: string,
+    privacyLevel: PrivacyLevel = 'Public'
+  ): Promise<boolean> {
     try {
+      const { error: profileError } = await supabase.from('profiles').upsert({
+        id: userId,
+        updated_at: new Date().toISOString(),
+      }, { onConflict: 'id' });
+
+      if (profileError) {
+        console.warn('[FeedService] Story profile upsert failed:', profileError.message);
+        return false;
+      }
+
+      const finalMediaUrl = await feedService.uploadStoryMedia(userId, mediaUrl);
+
       const { error } = await supabase.from('stories').insert({
         user_id: userId,
-        media_url: mediaUrl,
+        media_url: finalMediaUrl,
+        privacy_level: privacyLevel,
         created_at: new Date().toISOString(),
       });
-      return !error;
+
+      if (error) {
+        console.warn('[FeedService] Story insert failed:', error.message);
+        return false;
+      }
+
+      return true;
     } catch (err) {
       console.warn('[FeedService] Exception creating story:', err);
       return false;

@@ -60,6 +60,7 @@ export interface ChatMessage {
   delivery_state?: MessageDeliveryStatus;
   type?: "text" | "image" | "voice" | "call_log";
   image_url?: string;
+  video_url?: string;
   audio_url?: string;
   audio_duration?: string;
   is_encrypted?: boolean;

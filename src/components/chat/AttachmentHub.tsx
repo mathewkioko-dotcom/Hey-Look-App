@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   FileCode,
   Camera,
+  Film,
   Image as ImageIcon,
   Mic,
   AudioLines,
@@ -55,7 +56,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
-export type AttachmentDispatchType = "image" | "voice" | "code" | "doc" | "poll" | "contact" | "event" | "location" | "beacon" | "gif";
+export type AttachmentDispatchType = "image" | "video" | "voice" | "code" | "doc" | "poll" | "contact" | "event" | "location" | "beacon" | "gif";
 
 export interface AttachmentHubResult {
   type: AttachmentDispatchType;
@@ -63,6 +64,7 @@ export interface AttachmentHubResult {
   detail: string;
   category: string;
   image_url?: string;
+  video_url?: string;
   audio_duration?: string;
   code_lang?: string;
   code_content?: string;
@@ -89,6 +91,7 @@ interface TileDef {
 const TILES: TileDef[] = [
   { key: "doc", label: "Document", desc: "PDF, Docs, Sheets, Code", icon: <FileText className="w-6 h-6" />, gradient: "from-cyan-500/20 to-blue-500/10 border-cyan-500/30 text-cyan-400" },
   { key: "camera", label: "Camera/Gallery", desc: "Capture or upload + edit", icon: <Camera className="w-6 h-6" />, gradient: "from-pink-500/20 to-rose-500/10 border-pink-500/30 text-pink-400" },
+  { key: "video", label: "Video", desc: "Upload a video clip", icon: <Film className="w-6 h-6" />, gradient: "from-violet-500/20 to-indigo-500/10 border-violet-500/30 text-violet-400" },
   { key: "audio", label: "Audio / Voice", desc: "Record, upload, synth", icon: <Mic className="w-6 h-6" />, gradient: "from-amber-500/20 to-orange-500/10 border-amber-500/30 text-amber-400" },
   { key: "location", label: "Location", desc: "Live / current / nearby", icon: <MapPin className="w-6 h-6" />, gradient: "from-emerald-500/20 to-green-500/10 border-emerald-500/30 text-emerald-400" },
   { key: "contact", label: "Contact Card", desc: "Share a person", icon: <UserIcon className="w-6 h-6" />, gradient: "from-indigo-500/20 to-violet-500/10 border-indigo-500/30 text-indigo-400" },
@@ -168,6 +171,7 @@ export const AttachmentHub: React.FC<AttachmentHubProps> = ({
 }) => {
   const [view, setView] = useState<string>("hub"); // hub | sub-view key
   const fileInputRef = useRef<HTMLInputElement>(null);
+    const mediaFileInputRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<string>("");
 
   // ---------- Document state ----------
@@ -277,6 +281,24 @@ console.log(greetFleet("Captain"));`,
       extra: { crop, rotate, filter: filterPreset, text: textOverlay },
     });
     showToast("Photo sent!");
+  };
+
+  const handleMediaFile = (event: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 50 * 1024 * 1024) {
+      showToast("Media must be smaller than 50MB");
+      return;
+    }
+    onSend({
+      type,
+      title: type === "video" ? "Video" : "Photo",
+      detail: file.name,
+      category: "media",
+      extra: { file },
+    });
+    closeHub();
   };
 
   const sendAudio = (detail: string, duration?: string) => {
@@ -433,6 +455,12 @@ console.log(greetFleet("Captain"));`,
             <Camera className="w-7 h-7 text-pink-400 mx-auto mb-1" />
             <p className="text-xs font-semibold text-slate-200">Take a photo</p>
           </button>
+          <button onClick={() => mediaFileInputRef.current?.click()} className="w-full border-2 border-dashed border-slate-700 rounded-2xl p-4 text-center hover:border-pink-500/50 transition-colors cursor-pointer bg-slate-950/50">
+            <Upload className="w-7 h-7 text-pink-400 mx-auto mb-1" />
+            <p className="text-xs font-semibold text-slate-200">Upload a photo</p>
+            <p className="text-[10px] text-slate-500 mt-1">JPG, PNG, WEBP up to 50MB</p>
+          </button>
+          <input ref={mediaFileInputRef} type="file" accept="image/*" className="hidden" onChange={(event) => handleMediaFile(event, "image")} />
           <div className="grid grid-cols-4 gap-2">
             {GALLERY_IMAGES.map((img, i) => (
               <button key={i} onClick={() => { setSelectedImage(img); setGalleryMode("editor"); }} className="aspect-square rounded-xl overflow-hidden border border-slate-700 hover:border-pink-500/60 hover:scale-105 transition-all cursor-pointer">
@@ -481,6 +509,17 @@ console.log(greetFleet("Captain"));`,
     );
   };
 
+  const renderVideo = () => (
+    <div className="space-y-4">
+      <Header title="Video Attachment" subtitle="Upload a clip to this chat" color="text-violet-400" bg="bg-violet-500/20 border-violet-500/30" icon={<Film className="w-6 h-6" />} onBack={() => setView("hub")} />
+      <button onClick={() => mediaFileInputRef.current?.click()} className="w-full border-2 border-dashed border-violet-500/40 rounded-2xl p-8 text-center hover:bg-violet-500/10 transition-colors cursor-pointer bg-slate-950/50">
+        <Film className="w-9 h-9 text-violet-400 mx-auto mb-2" />
+        <p className="text-sm font-semibold text-slate-200">Choose a video</p>
+        <p className="text-xs text-slate-500 mt-1">MP4, MOV, WEBM up to 50MB</p>
+      </button>
+      <input ref={mediaFileInputRef} type="file" accept="video/*" className="hidden" onChange={(event) => handleMediaFile(event, "video")} />
+    </div>
+  );
   /* ---------- Render: Audio sub-view ---------- */
   const renderAudio = () => {
     if (audioMode === "recording") {
@@ -894,6 +933,7 @@ console.log(greetFleet("Captain"));`,
             {view === "hub" && renderHub()}
             {view === "doc" && renderDoc()}
             {view === "camera" && renderCamera()}
+            {view === "video" && renderVideo()}
             {view === "audio" && renderAudio()}
             {view === "location" && renderLocation()}
             {view === "contact" && renderContact()}

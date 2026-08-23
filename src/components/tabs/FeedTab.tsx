@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ThumbsUp,
@@ -70,14 +70,21 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   // Story Creation Modal
   const [isStoryModalOpen, setIsStoryModalOpen] = useState(false);
   const [storyMediaInput, setStoryMediaInput] = useState('');
+  const [storyPrivacyLevel, setStoryPrivacyLevel] = useState<PrivacyLevel>('Public');
   const [isPublishingStory, setIsPublishingStory] = useState(false);
+  const [storyFileName, setStoryFileName] = useState('');
+
+  // Story viewer state
+  const [activeStoryIndex, setActiveStoryIndex] = useState<number | null>(null);
+  const [storyProgress, setStoryProgress] = useState(0);
+  const storyTimerRef = useRef<number | null>(null);
 
   // Load Real Supabase Posts & Stories
   const loadData = async () => {
     setIsLoading(true);
     const [fetchedPosts, fetchedStories] = await Promise.all([
       feedService.fetchPosts(currentUser.id),
-      feedService.fetchStories(),
+      feedService.fetchStories(currentUser.id),
     ]);
     setPosts(fetchedPosts);
     setStories(fetchedStories);
@@ -241,18 +248,95 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   };
 
   // Story Submit
+  const handleStoryFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setStoryMediaInput(String(reader.result || ''));
+      setStoryFileName(file.name);
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleCreateStorySubmit = async () => {
     if (!storyMediaInput.trim()) return;
     setIsPublishingStory(true);
-    const success = await feedService.createStory(currentUser.id, storyMediaInput.trim());
-    if (success) {
-      setStoryMediaInput('');
-      setIsStoryModalOpen(false);
-      const updatedStories = await feedService.fetchStories();
-      setStories(updatedStories);
+
+    try {
+      const success = await feedService.createStory(
+        currentUser.id,
+        storyMediaInput.trim(),
+        storyPrivacyLevel
+      );
+
+      if (success) {
+        setStoryMediaInput('');
+        setStoryFileName('');
+        setIsStoryModalOpen(false);
+        const updatedStories = await feedService.fetchStories(currentUser.id);
+        setStories(updatedStories);
+      }
+    } finally {
+      setIsPublishingStory(false);
     }
-    setIsPublishingStory(false);
   };
+
+  const openStory = (index: number) => {
+    setActiveStoryIndex(index);
+    setStoryProgress(0);
+  };
+
+  const closeStory = () => {
+    if (storyTimerRef.current) {
+      window.clearTimeout(storyTimerRef.current);
+      storyTimerRef.current = null;
+    }
+    setActiveStoryIndex(null);
+    setStoryProgress(0);
+  };
+
+  const goToStory = (offset: number) => {
+    if (activeStoryIndex === null || stories.length === 0) return;
+    const nextIndex = Math.min(stories.length - 1, Math.max(0, activeStoryIndex + offset));
+    setActiveStoryIndex(nextIndex);
+    setStoryProgress(0);
+  };
+
+  useEffect(() => {
+    if (activeStoryIndex === null || stories.length === 0) {
+      setStoryProgress(0);
+      return;
+    }
+
+    const start = Date.now();
+    const step = () => {
+      const elapsed = Date.now() - start;
+      const progress = Math.min(100, (elapsed / 5000) * 100);
+      setStoryProgress(progress);
+
+      if (progress >= 100) {
+        setActiveStoryIndex((current) => {
+          if (current === null || stories.length === 0) return current;
+          return current >= stories.length - 1 ? 0 : current + 1;
+        });
+        setStoryProgress(0);
+        return;
+      }
+
+      storyTimerRef.current = window.setTimeout(step, 50);
+    };
+
+    storyTimerRef.current = window.setTimeout(step, 50);
+
+    return () => {
+      if (storyTimerRef.current) {
+        window.clearTimeout(storyTimerRef.current);
+        storyTimerRef.current = null;
+      }
+    };
+  }, [activeStoryIndex, stories.length]);
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
@@ -294,10 +378,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
           <span className="text-[10px] text-slate-400 mt-0.5">Share moment</span>
         </motion.div>
 
-        {stories.map((story) => (
+        {stories.map((story, index) => (
           <motion.div
             key={story.id}
             whileHover={{ scale: 1.03 }}
+            onClick={() => openStory(index)}
             className={`relative w-28 h-44 rounded-2xl overflow-hidden shrink-0 shadow-md cursor-pointer border ${
               isDark ? 'border-slate-800' : 'border-slate-200'
             }`}
@@ -321,6 +406,97 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
           </motion.div>
         ))}
       </div>
+
+      <AnimatePresence>
+        {activeStoryIndex !== null && stories[activeStoryIndex] && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+          >
+            <motion.div
+              initial={{ scale: 0.96, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.96, opacity: 0 }}
+              className="relative w-full max-w-md h-[72vh] overflow-hidden rounded-[2rem] border border-white/10 bg-slate-950 shadow-2xl"
+            >
+              <button
+                onClick={closeStory}
+                className="absolute right-3 top-3 z-20 rounded-full bg-black/40 p-2 text-white hover:bg-black/60"
+                aria-label="Close story"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="absolute inset-x-0 top-0 z-20 p-3">
+                <div className="flex gap-1.5">
+                  {stories.map((story, index) => (
+                    <div key={`${story.id}-bar`} className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/25">
+                      <div
+                        className={`h-full rounded-full transition-all duration-200 ${
+                          index < activeStoryIndex ? 'bg-white' : index === activeStoryIndex ? 'bg-white' : 'bg-transparent'
+                        }`}
+                        style={{
+                          width:
+                            index < activeStoryIndex ? '100%' : index === activeStoryIndex ? `${storyProgress}%` : '0%',
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <img
+                src={stories[activeStoryIndex].media_url || stories[activeStoryIndex].user_avatar}
+                alt={`${stories[activeStoryIndex].user_name}'s story`}
+                className="h-full w-full object-cover"
+              />
+
+              <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
+              <div className="absolute bottom-0 left-0 right-0 z-10 p-4">
+                <div className="flex items-center gap-3 mb-4">
+                  <img
+                    src={stories[activeStoryIndex].user_avatar}
+                    alt={stories[activeStoryIndex].user_name}
+                    className="h-10 w-10 rounded-full border-2 border-white/60 object-cover"
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-white">{stories[activeStoryIndex].user_name}</p>
+                    <p className="text-[10px] text-slate-200">
+                      {new Date(stories[activeStoryIndex].created_at).toLocaleTimeString([], {
+                        hour: 'numeric',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => goToStory(-1)}
+                className="absolute left-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/30 p-2 text-white hover:bg-black/50"
+                aria-label="Previous story"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current stroke-[2]">
+                  <path d="M15 18l-6-6 6-6" />
+                </svg>
+              </button>
+
+              <button
+                onClick={() => goToStory(1)}
+                className="absolute right-2 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/30 p-2 text-white hover:bg-black/50"
+                aria-label="Next story"
+              >
+                <svg viewBox="0 0 24 24" className="h-5 w-5 fill-none stroke-current stroke-[2]">
+                  <path d="M9 18l6-6-6-6" />
+                </svg>
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ADVANCED DIGITAL PUBLISHING COMPOSER */}
       <div
@@ -842,14 +1018,43 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-400">Story Image URL</label>
+              <label className="text-xs font-medium text-slate-400">Story Image</label>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleStoryFileSelect}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-xl bg-slate-800 border border-slate-700 text-white focus:outline-none file:mr-3 file:rounded-full file:border-0 file:bg-cyan-600 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
+              />
+              {storyFileName && (
+                <p className="mt-2 text-[11px] text-cyan-300">Selected: {storyFileName}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-400">Or use an image URL</label>
               <input
                 type="text"
                 placeholder="https://images.unsplash.com/..."
                 value={storyMediaInput}
-                onChange={(e) => setStoryMediaInput(e.target.value)}
+                onChange={(e) => {
+                  setStoryMediaInput(e.target.value);
+                  if (e.target.value.trim() && storyFileName) setStoryFileName('');
+                }}
                 className="w-full mt-1 px-3 py-2 text-sm rounded-xl bg-slate-800 border border-slate-700 text-white focus:outline-none"
               />
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-400">Who can see this story?</label>
+              <select
+                value={storyPrivacyLevel}
+                onChange={(e) => setStoryPrivacyLevel(e.target.value as PrivacyLevel)}
+                className="w-full mt-1 px-3 py-2 text-sm rounded-xl bg-slate-800 border border-slate-700 text-white focus:outline-none"
+              >
+                <option value="Public">Everyone</option>
+                <option value="Anchors Only">Other HeyLook users</option>
+                <option value="Only Me">Only me</option>
+              </select>
             </div>
 
             <div className="flex gap-2 pt-2">

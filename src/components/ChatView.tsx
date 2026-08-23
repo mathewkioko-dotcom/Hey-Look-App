@@ -184,6 +184,8 @@ export const ChatView: React.FC<ChatViewProps> = ({
     useState<boolean>(false);
   const [isSendingVoice, setIsSendingVoice] = useState<boolean>(false);
   const [inputText, setInputText] = useState<string>("");
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingMedia, setIsUploadingMedia] = useState(false);
 
   // MENU 1: Attachment Drawer State
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
@@ -836,6 +838,60 @@ export const ChatView: React.FC<ChatViewProps> = ({
     showNotice(`Dispatched ${title}`);
   };
 
+  const handleMediaFileSelected = async (
+    event: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      showNotice("Choose an image or video file");
+      return;
+    }
+    if (file.size > 50 * 1024 * 1024) {
+      showNotice("Media must be smaller than 50MB");
+      return;
+    }
+
+    setIsUploadingMedia(true);
+    try {
+      const extension = file.name.split(".").pop()?.toLowerCase() || "bin";
+      const fileId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const filePath = `${currentUser.id}/${fileId}.${extension}`;
+      const { data, error } = await supabase.storage
+        .from("chat-media")
+        .upload(filePath, file, { contentType: file.type, upsert: false });
+      if (error) throw error;
+
+      const { data: publicData } = supabase.storage
+        .from("chat-media")
+        .getPublicUrl(data.path);
+      const isVideo = file.type.startsWith("video/");
+      const msgData = {
+        room_id: activeConv.id,
+        sender_id: currentUser.id,
+        receiver_id: activeConv.user.id,
+        text: isVideo ? "Sent encrypted video stream" : "Sent encrypted photo",
+        type: "image" as const,
+        image_url: isVideo ? undefined : publicData.publicUrl,
+        video_url: isVideo ? publicData.publicUrl : undefined,
+        created_at: new Date().toISOString(),
+      };
+      const newMsg = await chatService.sendMessage(msgData);
+      setMessages((prev) => [...prev, newMsg]);
+      onUpdateConversation?.(activeConv.id, newMsg.text, newMsg);
+      showNotice(isVideo ? "Video sent" : "Photo sent");
+    } catch (error) {
+      console.error("[ChatView] Media upload failed:", error);
+      showNotice("Media upload failed. Check storage permissions.");
+    } finally {
+      setIsUploadingMedia(false);
+    }
+  };
+
   // ATTACHMENT & MEDIA PICKER HUB SEND HANDLER
   // Routes results from AttachmentHub to the correct message pipeline:
   //   image/gif   → real image message (renders full-bleed + lightbox)
@@ -845,14 +901,35 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const handleAttachmentHubSend = async (result: AttachmentHubResult) => {
     setIsAttachmentHubOpen(false);
     try {
-      if (result.type === "image" || result.type === "gif") {
+      if (result.type === "image" || result.type === "video" || result.type === "gif") {
+        const file = result.extra?.file as File | undefined;
+        let imageUrl = result.image_url;
+        let videoUrl = result.video_url;
+        if (file) {
+          const extension = file.name.split(".").pop()?.toLowerCase() || "bin";
+          const fileId =
+            typeof crypto !== "undefined" && crypto.randomUUID
+              ? crypto.randomUUID()
+              : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+          const filePath = `${currentUser.id}/${fileId}.${extension}`;
+          const { data, error } = await supabase.storage
+            .from("chat-media")
+            .upload(filePath, file, { contentType: file.type, upsert: false });
+          if (error) throw error;
+          const { data: publicData } = supabase.storage
+            .from("chat-media")
+            .getPublicUrl(data.path);
+          if (result.type === "video") videoUrl = publicData.publicUrl;
+          else imageUrl = publicData.publicUrl;
+        }
         const msgData = {
           room_id: activeConv.id,
           sender_id: currentUser.id,
           receiver_id: activeConv.user.id,
           text: result.title,
           type: "image" as const,
-          image_url: result.image_url,
+          image_url: imageUrl,
+          video_url: videoUrl,
           created_at: new Date().toISOString(),
         };
         const newMsg = await chatService.sendMessage(msgData);
@@ -1822,6 +1899,25 @@ const isMe =
                       ) : (
                         <>
                           {/* Full-Bleed Image Attachment (Instagram-style) */}
+                          {msg.video_url && (
+                            <div
+                              className={`relative overflow-hidden group/img ${
+                                isMe ? "rounded-br-none" : "rounded-bl-none"
+                              } ${compactRows ? "-m-2.5" : "-m-3.5"} mb-0`}
+                            >
+                              <video
+                                src={msg.video_url}
+                                controls
+                                preload="metadata"
+                                className="w-full max-h-[420px] object-cover"
+                              />
+                              <div className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur-md border border-white/20 text-[10px] text-cyan-300 font-mono flex items-center gap-1 shadow-lg pointer-events-none">
+                                <Lock className="w-3 h-3 text-cyan-400" />
+                                <span>Encrypted Stream</span>
+                              </div>
+                            </div>
+                          )}
+
                           {msg.image_url && (
                             <div
                               className={`relative overflow-hidden group/img ${
@@ -2342,10 +2438,7 @@ const isMe =
                   <>
                     <button
                       onClick={() => {
-                        handleSendMessage(
-                          "image",
-                          "https://images.unsplash.com/photo-1507525428034-b723cf961d3e?auto=format&fit=crop&w=800&q=80",
-                        );
+                        mediaInputRef.current?.click();
                         setIsAttachmentOpen(false);
                       }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-cyan-500/50 text-slate-200"
@@ -2369,13 +2462,10 @@ const isMe =
                     </button>
 
                     <button
-                      onClick={() =>
-                        handleDispatchAttachment(
-                          "Video Stream",
-                          "1080p Nautical Log",
-                          "media",
-                        )
-                      }
+                      onClick={() => {
+                        mediaInputRef.current?.click();
+                        setIsAttachmentOpen(false);
+                      }}
                       className="p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center gap-1.5 hover:border-purple-500/50 text-slate-200"
                     >
                       <Film className="w-5 h-5 text-purple-400" />
@@ -2476,6 +2566,15 @@ const isMe =
           >
             <Plus className="w-5 h-5" />
           </button>
+
+          <input
+            ref={mediaInputRef}
+            type="file"
+            accept="image/*,video/*"
+            className="hidden"
+            disabled={isUploadingMedia}
+            onChange={handleMediaFileSelected}
+          />
 
           {/* CREATIVE CANVAS BUTTON */}
           <button
