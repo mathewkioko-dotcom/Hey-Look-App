@@ -62,6 +62,19 @@ CREATE TRIGGER on_auth_user_created_presence
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user_presence();
 
+-- Create posts before dependent reaction tables.
+CREATE TABLE IF NOT EXISTS public.posts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  content TEXT,
+  image_url TEXT,
+  feeling_tag TEXT,
+  likes_count INT DEFAULT 0,
+  comments_count INT DEFAULT 0,
+  shares_count INT DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
 -- ----------------------------------------------------------------------------
 -- 2. MESSAGES & NAUTICAL DELIVERY STATE VECTOR & VANISHING ENGINE
 -- ----------------------------------------------------------------------------
@@ -169,18 +182,6 @@ CREATE INDEX IF NOT EXISTS idx_likes_post_id ON public.likes(post_id);
 -- ----------------------------------------------------------------------------
 -- 4. PUBLISHING COMPOSER, CANVAS GRADIENTS, POLLS, PRIVACY & RESHARES
 -- ----------------------------------------------------------------------------
-
-CREATE TABLE IF NOT EXISTS public.posts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content TEXT,
-  image_url TEXT,
-  feeling_tag TEXT,
-  likes_count INT DEFAULT 0,
-  comments_count INT DEFAULT 0,
-  shares_count INT DEFAULT 0,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
 
 -- Stories are visible according to the author's selected audience.
 CREATE TABLE IF NOT EXISTS public.stories (
