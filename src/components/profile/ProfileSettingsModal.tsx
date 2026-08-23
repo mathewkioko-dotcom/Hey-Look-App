@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X,
@@ -41,6 +41,8 @@ import {
   Smartphone,
   Laptop,
   Globe,
+  Camera,
+  Upload,
 } from "lucide-react";
 import { Profile, OAuthProvider, NauticalPresenceState } from "../../types";
 import { feedService } from "../../services/feedService";
@@ -144,6 +146,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   // Edit Profile state
   const [editSub, setEditSub] = useState<"list" | "avatar" | "name" | "bio" | "handle">("list");
   const [avatarInput, setAvatarInput] = useState(currentUser.avatar_url || "");
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const deviceInputRef = useRef<HTMLInputElement>(null);
   const [nameInput, setNameInput] = useState(currentUser.full_name || "");
   const [bioInput, setBioInput] = useState(currentUser.bio || "");
   const [handleInput, setHandleInput] = useState(currentUser.username || "");
@@ -225,6 +229,35 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     showToast("Profile saved ✓");
   };
 
+  const handleAvatarFile = async (file?: File) => {
+    if (!file || !file.type.startsWith("image/")) {
+      showToast("Please choose an image file");
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      showToast("Image must be smaller than 8 MB");
+      return;
+    }
+
+    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `avatars/${currentUser.id}/${Date.now()}.${extension}`;
+    const { error } = await supabase.storage
+      .from("chat-media")
+      .upload(path, file, { upsert: false, contentType: file.type });
+
+    if (error) {
+      showToast(`Upload failed: ${error.message}`);
+      return;
+    }
+
+    const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
+    if (data?.publicUrl) {
+      setAvatarInput(data.publicUrl);
+      await saveProfile({ avatar_url: data.publicUrl });
+    }
+  };
+
   /* ---------- Render helpers ---------- */
   const renderEditProfile = () => {
     if (editSub !== "list") {
@@ -235,6 +268,45 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             <Header title="Change Avatar" subtitle="Update your profile picture" color="text-cyan-400" bg="bg-cyan-500/20 border-cyan-500/30" icon={<User className="w-6 h-6" />} onBack={back} />
             <div className="flex flex-col items-center gap-3 py-4">
               <img src={avatarInput || currentUser.avatar_url} alt="avatar" className="w-24 h-24 rounded-full object-cover border-4 border-cyan-500/40 shadow-xl" />
+              <div className="grid grid-cols-2 gap-2 w-full">
+                <button
+                  type="button"
+                  onClick={() => cameraInputRef.current?.click()}
+                  className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800 border border-slate-700 hover:border-cyan-500/50 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+                >
+                  <Camera className="w-4 h-4 text-cyan-400" />
+                  Take Photo
+                </button>
+                <button
+                  type="button"
+                  onClick={() => deviceInputRef.current?.click()}
+                  className="flex items-center justify-center gap-2 p-2.5 rounded-xl bg-slate-800 border border-slate-700 hover:border-cyan-500/50 text-xs font-semibold text-slate-200 transition-colors cursor-pointer"
+                >
+                  <Upload className="w-4 h-4 text-cyan-400" />
+                  Upload from Device
+                </button>
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleAvatarFile(e.target.files?.[0]);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <input
+                  ref={deviceInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    void handleAvatarFile(e.target.files?.[0]);
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </div>
               <div className="flex flex-wrap gap-2 justify-center">
                 {["https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200", "https://images.unsplash.com/photo-1517841905240-472988babdf9?w=200", "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200", "https://images.unsplash.com/photo-1506794778202-cad84cf45f1d?w=200"].map((url) => (
                   <button key={url} onClick={() => setAvatarInput(url)} className={`w-14 h-14 rounded-full overflow-hidden border-2 transition-all cursor-pointer ${avatarInput === url ? "border-cyan-400 scale-110" : "border-slate-700 hover:border-slate-500"}`}>
