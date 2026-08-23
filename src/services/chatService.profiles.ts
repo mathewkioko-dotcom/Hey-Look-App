@@ -48,6 +48,25 @@ export async function fetchProfileById(userId: string): Promise<Profile | null> 
   }
 }
 
+/** Ensure an authenticated user is discoverable in the public profiles table. */
+export async function ensureProfile(profile: Profile): Promise<void> {
+  if (!profile?.id) return;
+
+  const { error } = await supabase.from("profiles").upsert(
+    {
+      id: profile.id,
+      username: profile.username || `user_${profile.id.slice(0, 6)}`,
+      full_name: profile.full_name || "Nautical Explorer",
+      avatar_url: profile.avatar_url,
+    },
+    { onConflict: "id" },
+  );
+
+  if (error) {
+    console.warn("[ChatService] Profile sync error:", error.message);
+  }
+}
+
 /**
  * Fetch all registered profiles from Supabase `profiles` table
  */

@@ -5,6 +5,7 @@ import { MainLayout } from "./components/MainLayout";
 import { Profile } from "./types";
 import { supabase } from "./lib/supabase";
 import { CallProvider } from "./context/CallContext";
+import { ensureProfile } from "./services/chatService.profiles";
 
 type AppStep = "splash" | "auth" | "main";
 
@@ -29,7 +30,7 @@ export default function App() {
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
         const u = session.user;
-        setCurrentUser({
+        const profile = {
           id: u.id,
           username:
             u.user_metadata?.username ||
@@ -52,7 +53,9 @@ export default function App() {
           followers_count: 1420,
           following_count: 380,
           posts_count: 24,
-        });
+        };
+        void ensureProfile(profile);
+        setCurrentUser(profile);
         setStep("main");
       } else if (event === "SIGNED_OUT") {
         setCurrentUser(null);
@@ -98,6 +101,7 @@ export default function App() {
   };
 
   const handleLoginSuccess = (profile: Profile) => {
+    void ensureProfile(profile);
     setCurrentUser(profile);
     setStep("main");
   };
