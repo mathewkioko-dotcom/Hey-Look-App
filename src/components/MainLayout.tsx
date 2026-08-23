@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MessageCircle,
@@ -20,6 +20,15 @@ import { ProfileTab } from "./tabs/ProfileTab";
 import { AuthScreen } from "./AuthScreen";
 import { useCall } from "../context/CallContext";
 import { CallOverlay } from "./CallOverlay";
+import { supabase } from "../lib/supabase";
+
+interface AppNotification {
+  id: string;
+  senderName: string;
+  senderAvatar: string;
+  text: string;
+  createdAt: string;
+}
 
 interface MainLayoutProps {
   currentUser: Profile;
@@ -39,6 +48,70 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [activeTab, setActiveTab] = useState<ActiveTab>("chats");
   const [globalSearch, setGlobalSearch] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadNotifications = async () => {
+      const { data: messageRows, error } = await supabase
+        .from("messages")
+        .select("id, sender_id, text, content, type, created_at")
+        .eq("receiver_id", currentUser.id)
+        .order("created_at", { ascending: false })
+        .limit(20);
+
+      if (error || !messageRows || !isMounted) return;
+
+      const senderIds = [...new Set(messageRows.map((row: any) => row.sender_id))];
+      const { data: profileRows } = senderIds.length
+        ? await supabase.from("profiles").select("id, full_name, username, avatar_url").in("id", senderIds)
+        : { data: [] };
+      const profiles = new Map((profileRows || []).map((profile: any) => [profile.id, profile]));
+
+      setNotifications(
+        messageRows.map((row: any) => {
+          const profile = profiles.get(row.sender_id) || {};
+          return {
+            id: row.id,
+            senderName: profile.full_name || profile.username || "A HeyLook user",
+            senderAvatar: profile.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user",
+            text: row.text || row.content || (row.type === "image" ? "Sent a photo" : "Sent you a message"),
+            createdAt: row.created_at,
+          };
+        }),
+      );
+    };
+
+    void loadNotifications();
+    const channel = supabase
+      .channel(`notifications_${currentUser.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `receiver_id=eq.${currentUser.id}` }, async (payload) => {
+        const row = payload.new as any;
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name, username, avatar_url")
+          .eq("id", row.sender_id)
+          .maybeSingle();
+        if (!isMounted) return;
+        setNotifications((previous) => [
+          {
+            id: row.id,
+            senderName: profile?.full_name || profile?.username || "A HeyLook user",
+            senderAvatar: profile?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user",
+            text: row.text || row.content || (row.type === "image" ? "Sent a photo" : "Sent you a message"),
+            createdAt: row.created_at,
+          },
+          ...previous.filter((item) => item.id !== row.id),
+        ].slice(0, 20));
+      })
+      .subscribe();
+
+    return () => {
+      isMounted = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [currentUser.id]);
 
   // ---- GLOBAL WEBRTC CALL STATE ----
   // Consumed from the shared CallProvider (mounted at the app root in App.tsx)
@@ -115,7 +188,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 className="p-2.5 rounded-2xl text-slate-500 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative"
               >
                 <Bell className="w-5 h-5" />
-                <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-pink-500 animate-ping" />
+                {notifications.length > 0 && (
+                  <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-pink-500 animate-ping" />
+                )}
               </button>
 
               {/* Notification Popover */}
@@ -135,35 +210,29 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                       <h4 className="font-bold text-xs uppercase tracking-wider">
                         Notifications
                       </h4>
-                      <span className="text-[10px] text-indigo-500 font-semibold">
+                      <button
+                        onClick={() => setNotifications([])}
+                        className="text-[10px] text-indigo-500 font-semibold cursor-pointer"
+                      >
                         Mark read
-                      </span>
+                      </button>
                     </div>
-                    <div className="space-y-3 text-xs">
-                      <div className="flex items-start gap-2.5">
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
-                        <div>
-                          <p className="font-medium">
-                            <span className="font-bold">Sara Chen</span> sent
-                            you a message in WhatsApp mode
-                          </p>
-                          <span className="text-[10px] text-slate-400">
-                            5m ago
-                          </span>
+                    <div className="space-y-3 text-xs max-h-72 overflow-y-auto">
+                      {notifications.length === 0 ? (
+                        <p className="py-6 text-center text-slate-400">No new notifications</p>
+                      ) : notifications.map((notification) => (
+                        <div key={notification.id} className="flex items-start gap-2.5">
+                          <img src={notification.senderAvatar} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
+                          <div className="min-w-0">
+                            <p className="font-medium">
+                              <span className="font-bold">{notification.senderName}</span> {notification.text}
+                            </p>
+                            <span className="text-[10px] text-slate-400">
+                              {new Date(notification.createdAt).toLocaleString()}
+                            </span>
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex items-start gap-2.5">
-                        <span className="w-2 h-2 rounded-full bg-pink-500 mt-1.5 shrink-0" />
-                        <div>
-                          <p className="font-medium">
-                            <span className="font-bold">Alex Rivera</span> liked
-                            your Reel post
-                          </p>
-                          <span className="text-[10px] text-slate-400">
-                            1h ago
-                          </span>
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   </motion.div>
                 )}

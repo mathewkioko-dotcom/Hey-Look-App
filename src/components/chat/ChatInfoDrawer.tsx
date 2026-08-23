@@ -24,6 +24,7 @@ import {
   Check,
   CheckCircle2,
   Clock,
+  Trash2,
 } from "lucide-react";
 import {
   ChatMessage,
@@ -412,6 +413,18 @@ onPrefsChange,
                     label="Lock Chat"
                     sub={prefs.isLocked ? "Locked" : "Biometric + PIN"}
                     onClick={() => setView("lock")}
+                  />
+                  <Row
+                    icon={<Trash2 className="w-4 h-4" />}
+                    label="Clear Chat History"
+                    sub="Delete messages from this conversation"
+                    danger
+                    onClick={() => {
+                      if (window.confirm("Clear all messages in this chat?")) {
+                        onClearHistory();
+                        onClose();
+                      }
+                    }}
                   />
                 </>
               )}
