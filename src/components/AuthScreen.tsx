@@ -992,7 +992,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               </span>
             </div>
             <p className="mt-3 text-center text-[10px] font-semibold tracking-[0.3em] text-slate-500">
-              MATHEW PRESENTS
+              HEY LOOK
             </p>
           </motion.div>
         </div>

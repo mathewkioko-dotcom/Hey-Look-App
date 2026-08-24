@@ -241,7 +241,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 HeyLook
               </span>
               <span className="block text-[10px] text-slate-400 font-semibold tracking-wider">
-                MATHEW PRESENTS
+                HEY LOOK
               </span>
             </div>
           </div>
