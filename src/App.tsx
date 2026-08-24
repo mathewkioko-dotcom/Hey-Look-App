@@ -35,11 +35,11 @@ class AppErrorBoundary extends React.Component<
             Reload HeyLook
           </button>
           <p className="mt-12 text-center text-[10px] font-semibold tracking-[0.3em] text-slate-500">
-            MATHEW PRESENTS
+            ༒🅼︎🅰️︎🆃︎🅷︎🅴︎🅦︎ 🅟︎🅡︎🅔︎🅢︎🅔︎🅝︎🅣︎🅢︎ ⬤⬤⬤ ♛
           </p>
         </div>
       );
-    }
+    }``
     return this.props.children;
   }
 }
