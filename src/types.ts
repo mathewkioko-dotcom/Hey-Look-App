@@ -236,6 +236,7 @@ export interface Beacon {
 export type OAuthProvider =
   | "google"
   | "github"
+  | "instagram"
   | "discord"
   | "facebook"
   | "spotify"

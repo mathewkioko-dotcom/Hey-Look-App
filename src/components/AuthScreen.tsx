@@ -4,7 +4,7 @@ import {
   Sparkles,
   Sun,
   Moon,
-  Github,
+  Instagram,
   Globe,
   Facebook,
   ArrowRight,
@@ -385,9 +385,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       ),
     },
     {
-      id: "github" as OAuthProvider,
-      name: "GitHub",
-      icon: <Github className="w-4 h-4 text-slate-100 shrink-0" />,
+      id: "instagram" as OAuthProvider,
+      name: "Instagram",
+      icon: <Instagram className="w-4 h-4 text-pink-400 shrink-0" />,
     },
     {
       id: "facebook" as OAuthProvider,
