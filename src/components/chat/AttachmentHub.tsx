@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from 'motion/react';
+import { useVoiceRecorder } from "../../hooks/useVoiceRecorder";
 import {
   X,
   FileText,
@@ -65,6 +66,7 @@ export interface AttachmentHubResult {
   category: string;
   image_url?: string;
   video_url?: string;
+  audio_url?: string;
   audio_duration?: string;
   code_lang?: string;
   code_content?: string;
@@ -196,6 +198,7 @@ export const AttachmentHub: React.FC<AttachmentHubProps> = ({
 
   // ---------- Audio state ----------
   const [audioMode, setAudioMode] = useState<"hub" | "recording">("hub");
+  const voiceRecorder = useVoiceRecorder(currentUser?.id);
   const [audioPreset, setAudioPreset] = useState("Hymli Calm Voice");
   const [recordingSec, setRecordingSec] = useState(0);
   const recTimer = useRef<any>(null);
@@ -560,23 +563,24 @@ console.log(greetFleet("Captain"));`,
     if (audioMode === "recording") {
       return (
         <div className="space-y-4">
-          <Header title="Recording..." subtitle={`${recordingSec}s elapsed`} color="text-amber-400" bg="bg-amber-500/20 border-amber-500/30" icon={<AudioLines className="w-6 h-6" />} onBack={() => setAudioMode("hub")} />
+          <Header title="Recording..." subtitle={`${voiceRecorder.elapsedSeconds}s elapsed`} color="text-amber-400" bg="bg-amber-500/20 border-amber-500/30" icon={<AudioLines className="w-6 h-6" />} onBack={() => { voiceRecorder.cancelRecording(); setAudioMode("hub"); }} />
           <div className="flex items-center justify-center py-8">
             <div className="w-24 h-24 rounded-full bg-amber-500/20 border-4 border-amber-500 flex items-center justify-center animate-pulse">
               <Mic className="w-10 h-10 text-amber-400" />
             </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => { if (recTimer.current) clearInterval(recTimer.current); setAudioMode("hub"); setRecordingSec(0); }} className="flex-1 py-3 rounded-2xl bg-slate-800 text-slate-300 font-bold hover:bg-slate-700 cursor-pointer">Cancel</button>
-            <button onClick={() => { if (recTimer.current) clearInterval(recTimer.current); sendAudio(`Recorded ${recordingSec}s live`, `0:${String(recordingSec).padStart(2, "0")}`); setAudioMode("hub"); setRecordingSec(0); closeHub(); }} className="flex-1 py-3 rounded-2xl bg-amber-500 text-slate-950 font-extrabold hover:bg-amber-400 cursor-pointer">Send Recording</button>
+            <button onClick={() => { voiceRecorder.cancelRecording(); setAudioMode("hub"); }} className="flex-1 py-3 rounded-2xl bg-slate-800 text-slate-300 font-bold hover:bg-slate-700 cursor-pointer">Cancel</button>
+            <button onClick={async () => { const result = await voiceRecorder.stopRecording(); if (!result) return; onSend({ type: "voice", title: "Voice Note", detail: "Recorded voice note", category: "media", audio_url: result.audioUrl, audio_duration: result.duration }); setAudioMode("hub"); closeHub(); }} className="flex-1 py-3 rounded-2xl bg-amber-500 text-slate-950 font-extrabold hover:bg-amber-400 cursor-pointer">Send Recording</button>
           </div>
+          {voiceRecorder.error && <p className="text-xs text-rose-300 text-center">{voiceRecorder.error}</p>}
         </div>
       );
     }
     return (
       <div className="space-y-4">
         <Header title="Audio / Voice Note" subtitle="Record, upload, or synth" color="text-amber-400" bg="bg-amber-500/20 border-amber-500/30" icon={<Mic className="w-6 h-6" />} onBack={() => setView("hub")} />
-        <button onClick={() => { setAudioMode("recording"); recTimer.current = setInterval(() => setRecordingSec((s) => s + 1), 1000); }} className="w-full border-2 border-dashed border-amber-500/40 rounded-2xl p-6 text-center hover:bg-amber-500/10 transition-colors cursor-pointer bg-slate-950/50">
+        <button onClick={async () => { const started = await voiceRecorder.startRecording(); if (started) setAudioMode("recording"); }} className="w-full border-2 border-dashed border-amber-500/40 rounded-2xl p-6 text-center hover:bg-amber-500/10 transition-colors cursor-pointer bg-slate-950/50">
           <Mic className="w-8 h-8 text-amber-400 mx-auto mb-2" />
           <p className="text-sm font-semibold text-slate-200">Record Live</p>
           <p className="text-xs text-slate-500 mt-1">Tap to start a new voice note</p>
