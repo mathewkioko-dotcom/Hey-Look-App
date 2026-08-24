@@ -238,6 +238,71 @@ DROP POLICY IF EXISTS "Users can unblock users" ON public.user_blocks;
 CREATE POLICY "Users can unblock users" ON public.user_blocks FOR DELETE TO authenticated
   USING (auth.uid() = blocker_id);
 
+-- Durable, recipient-owned activity notifications.
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  recipient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  actor_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  kind TEXT NOT NULL,
+  target_id UUID,
+  message TEXT NOT NULL,
+  read_at TIMESTAMP WITH TIME ZONE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can read their notifications" ON public.notifications;
+CREATE POLICY "Users can read their notifications" ON public.notifications
+  FOR SELECT TO authenticated USING (auth.uid() = recipient_id);
+DROP POLICY IF EXISTS "Users can mark their notifications read" ON public.notifications;
+CREATE POLICY "Users can mark their notifications read" ON public.notifications
+  FOR UPDATE TO authenticated USING (auth.uid() = recipient_id) WITH CHECK (auth.uid() = recipient_id);
+DROP POLICY IF EXISTS "Users can clear their notifications" ON public.notifications;
+CREATE POLICY "Users can clear their notifications" ON public.notifications
+  FOR DELETE TO authenticated USING (auth.uid() = recipient_id);
+
+CREATE OR REPLACE FUNCTION public.create_activity_notification()
+RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+DECLARE recipient UUID; actor UUID; target UUID; kind_name TEXT; notification_text TEXT;
+BEGIN
+  IF TG_TABLE_NAME = 'messages' THEN
+    recipient := NEW.receiver_id; actor := NEW.sender_id; target := NEW.id; kind_name := 'message';
+    notification_text := COALESCE(NULLIF(NEW.text, ''), CASE WHEN NEW.type = 'video' THEN 'Sent you a video' WHEN NEW.type = 'image' THEN 'Sent you a photo' ELSE 'Sent you a message' END);
+  ELSIF TG_TABLE_NAME = 'follows' THEN
+    recipient := NEW.following_id; actor := NEW.follower_id; target := NEW.follower_id; kind_name := 'fleet'; notification_text := 'requested to join your fleet';
+  ELSIF TG_TABLE_NAME = 'story_reactions' THEN
+    SELECT user_id INTO recipient FROM stories WHERE id = NEW.story_id; actor := NEW.user_id; target := NEW.story_id; kind_name := 'story_reaction'; notification_text := 'reacted ' || NEW.emoji || ' to your story';
+  ELSIF TG_TABLE_NAME = 'likes' THEN
+    SELECT user_id INTO recipient FROM posts WHERE id = NEW.post_id; actor := NEW.user_id; target := NEW.post_id; kind_name := 'post_like'; notification_text := 'reacted ' || COALESCE(NEW.reaction_type, 'Like') || ' to your post';
+  ELSIF TG_TABLE_NAME = 'comments' THEN
+    SELECT user_id INTO recipient FROM posts WHERE id = NEW.post_id; actor := NEW.user_id; target := NEW.post_id; kind_name := 'comment'; notification_text := 'commented on your post';
+  ELSE RETURN NEW;
+  END IF;
+  IF recipient IS NOT NULL AND actor IS DISTINCT FROM recipient THEN
+    INSERT INTO notifications (recipient_id, actor_id, kind, target_id, message) VALUES (recipient, actor, kind_name, target, notification_text);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS notify_new_message ON public.messages;
+CREATE TRIGGER notify_new_message AFTER INSERT ON public.messages FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
+DROP TRIGGER IF EXISTS notify_new_follow ON public.follows;
+CREATE TRIGGER notify_new_follow AFTER INSERT ON public.follows FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
+DROP TRIGGER IF EXISTS notify_story_reaction ON public.story_reactions;
+CREATE TRIGGER notify_story_reaction AFTER INSERT ON public.story_reactions FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
+DROP TRIGGER IF EXISTS notify_post_like ON public.likes;
+CREATE TRIGGER notify_post_like AFTER INSERT ON public.likes FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
+DROP TRIGGER IF EXISTS notify_post_comment ON public.comments;
+CREATE TRIGGER notify_post_comment AFTER INSERT ON public.comments FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+  END IF;
+END $$;
+
 CREATE TABLE IF NOT EXISTS public.follows (
   follower_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   following_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,

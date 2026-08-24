@@ -26,6 +26,9 @@ import { supabase } from "../lib/supabase";
 
 interface AppNotification {
   id: string;
+  kind?: string;
+  targetId?: string;
+  readAt?: string | null;
   senderName: string;
   senderAvatar: string;
   text: string;
@@ -77,6 +80,16 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [liveNotification, setLiveNotification] = useState<AppNotification | null>(null);
   const [showNotificationMonitor, setShowNotificationMonitor] = useState(false);
   const [notificationsSnoozedUntil, setNotificationsSnoozedUntil] = useState<number | null>(null);
+
+  const markNotificationRead = async (id: string) => {
+    await supabase.from("notifications").update({ read_at: new Date().toISOString() }).eq("id", id).eq("recipient_id", currentUser.id);
+    setNotifications((items) => items.map((item) => item.id === id ? { ...item, readAt: new Date().toISOString() } : item));
+  };
+
+  const clearNotifications = async () => {
+    await supabase.from("notifications").delete().eq("recipient_id", currentUser.id);
+    setNotifications([]);
+  };
 
   const enableNotifications = async () => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
@@ -192,6 +205,25 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
     };
   }, [currentUser.id, notificationsSnoozedUntil]);
 
+  useEffect(() => {
+    let isMounted = true;
+    const loadActivity = async () => {
+      const { data } = await supabase.from("notifications").select("id, kind, actor_id, target_id, message, created_at, read_at, profiles:actor_id(full_name, username, avatar_url)").eq("recipient_id", currentUser.id).order("created_at", { ascending: false }).limit(50);
+      if (!isMounted || !data) return;
+      setNotifications(data.map((row: any) => ({ id: row.id, kind: row.kind, targetId: row.target_id, senderName: row.profiles?.full_name || row.profiles?.username || "A HeyLook user", senderAvatar: row.profiles?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user", text: row.message, createdAt: row.created_at, readAt: row.read_at })));
+    };
+    void loadActivity();
+    const channel = supabase.channel(`activity_notifications_${currentUser.id}`).on("postgres_changes", { event: "INSERT", schema: "public", table: "notifications", filter: `recipient_id=eq.${currentUser.id}` }, async (payload) => {
+      const row = payload.new as any;
+      const { data: profile } = await supabase.from("profiles").select("full_name, username, avatar_url").eq("id", row.actor_id).maybeSingle();
+      if (!isMounted) return;
+      const notification = { id: row.id, kind: row.kind, targetId: row.target_id, senderName: profile?.full_name || profile?.username || "A HeyLook user", senderAvatar: profile?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user", text: row.message, createdAt: row.created_at, readAt: null };
+      setNotifications((items) => [notification, ...items.filter((item) => item.id !== notification.id)].slice(0, 50));
+      if (!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) { setLiveNotification(notification); playMessageAlert(); }
+    }).subscribe();
+    return () => { isMounted = false; void supabase.removeChannel(channel); };
+  }, [currentUser.id, notificationsSnoozedUntil]);
+
   // ---- GLOBAL WEBRTC CALL STATE ----
   // Consumed from the shared CallProvider (mounted at the app root in App.tsx)
   // so the incoming-call signaling listener and ringing chime stay ACTIVE
@@ -270,7 +302,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 className="p-2.5 rounded-2xl text-slate-500 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative"
               >
                 <Bell className="w-5 h-5" />
-                {notifications.length > 0 && (
+                {notifications.filter((item) => !item.readAt).length > 0 && (
                   <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-pink-500 animate-ping" />
                 )}
               </button>
@@ -293,7 +325,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                         Notifications
                       </h4>
                       <button
-                        onClick={() => setNotifications([])}
+                        onClick={() => { void Promise.all(notifications.filter((item) => !item.readAt).map((item) => markNotificationRead(item.id))); }}
                         className="text-[10px] text-indigo-500 font-semibold cursor-pointer"
                       >
                         Mark read
@@ -304,7 +336,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                       {notifications.length === 0 ? (
                         <p className="py-6 text-center text-slate-400">No new notifications</p>
                       ) : notifications.map((notification) => (
-                        <div key={notification.id} className="flex items-start gap-2.5">
+                        <button key={notification.id} onClick={() => { void markNotificationRead(notification.id); setActiveTab(notification.kind === "message" ? "chats" : "feed"); setShowNotifications(false); }} className={`flex w-full items-start gap-2.5 text-left ${notification.readAt ? "opacity-60" : ""}`}>
                           <img src={notification.senderAvatar} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
                           <div className="min-w-0">
                             <p className="font-medium">
@@ -314,7 +346,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                               {new Date(notification.createdAt).toLocaleString()}
                             </span>
                           </div>
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </motion.div>
@@ -366,12 +398,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 <button onClick={() => setShowNotificationMonitor(false)} className="rounded-xl bg-slate-800 p-2 text-slate-300" aria-label="Close notification monitor">×</button>
               </div>
               <div className="flex flex-wrap gap-2 py-4">
-                <button onClick={() => setNotifications([])} className="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-bold text-rose-300">Clear all</button>
+                <button onClick={() => void clearNotifications()} className="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-bold text-rose-300">Clear all</button>
                 <button onClick={() => { setNotificationsSnoozedUntil(Date.now() + 60 * 60 * 1000); setLiveNotification(null); }} className="rounded-xl bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-300">Snooze 1 hour</button>
                 <button onClick={() => { setNotificationsSnoozedUntil(Date.now() + 8 * 60 * 60 * 1000); setLiveNotification(null); }} className="rounded-xl bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-300">Snooze 8 hours</button>
                 <button onClick={() => setNotificationsSnoozedUntil(null)} className="rounded-xl bg-cyan-500/20 px-3 py-2 text-xs font-bold text-cyan-300">Turn notifications on</button>
               </div>
-              <div className="space-y-2">{notifications.length === 0 ? <p className="py-12 text-center text-sm text-slate-500">No activity yet</p> : notifications.map((notification) => <button key={notification.id} onClick={() => { setActiveTab("chats"); setShowNotificationMonitor(false); }} className="flex w-full items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-left hover:border-cyan-500/50"><img src={notification.senderAvatar} alt="" className="h-10 w-10 rounded-full object-cover" /><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-white">{notification.senderName}</span><span className="block text-xs text-slate-300">{notification.text}</span><span className="block text-[10px] text-slate-500">{new Date(notification.createdAt).toLocaleString()}</span></span></button>)}</div>
+              <div className="space-y-2">{notifications.length === 0 ? <p className="py-12 text-center text-sm text-slate-500">No activity yet</p> : notifications.map((notification) => <button key={notification.id} onClick={() => { void markNotificationRead(notification.id); setActiveTab(notification.kind === "message" ? "chats" : "feed"); setShowNotificationMonitor(false); }} className={`flex w-full items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-left hover:border-cyan-500/50 ${notification.readAt ? "opacity-60" : ""}`}><img src={notification.senderAvatar} alt="" className="h-10 w-10 rounded-full object-cover" /><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-white">{notification.senderName}</span><span className="block text-xs text-slate-300">{notification.text}</span><span className="block text-[10px] text-slate-500">{new Date(notification.createdAt).toLocaleString()}</span></span></button>)}</div>
             </div>
           </motion.div>
         )}
