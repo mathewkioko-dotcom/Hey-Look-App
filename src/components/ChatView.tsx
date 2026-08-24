@@ -1198,7 +1198,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
 
   // Clear Chat History
   const handleClearHistory = async () => {
-    await chatService.clearHistory(currentUser.id, activeConv.user.id);
+    const cleared = await chatService.clearHistory(currentUser.id, activeConv.user.id);
+    if (!cleared) {
+      showNotice("Could not clear chat history");
+      return;
+    }
     setMessages([]);
     setIsRoomMenuOpen(false);
     showNotice("Chat Canvas Cleared");

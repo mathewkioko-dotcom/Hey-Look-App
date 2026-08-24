@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
-import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send } from "lucide-react";
+import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users } from "lucide-react";
 import { FeedPost, Profile } from "../../types";
 import { feedService, StoryItem } from "../../services/feedService";
 import { supabase } from "../../lib/supabase";
+import { fetchAllProfiles } from "../../services/chatService.profiles";
 
 interface HomeTabProps {
   currentUser: Profile;
@@ -18,6 +19,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
   const [commentOpen, setCommentOpen] = useState<Record<string, boolean>>({});
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [otherUsers, setOtherUsers] = useState<Profile[]>([]);
   const [newPostText, setNewPostText] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
 
@@ -29,6 +31,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
     ]);
     setPosts(homePosts);
     setStories(homeStories);
+    const profiles = await fetchAllProfiles(currentUser.id);
+    setOtherUsers(profiles.filter((profile) => profile.id !== currentUser.id).slice(0, 24));
     const authorIds = homePosts.map((post) => post.user_id).filter((id): id is string => Boolean(id) && id !== currentUser.id);
     if (authorIds.length) {
       const { data } = await supabase.from("follows").select("following_id, status").eq("follower_id", currentUser.id).in("following_id", authorIds);
@@ -118,6 +122,12 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
           {commentOpen[post.id] && <div className="flex gap-2 border-t border-slate-800 p-3"><input value={commentText[post.id] || ""} onChange={(event) => setCommentText((items) => ({ ...items, [post.id]: event.target.value }))} placeholder="Write a comment..." className="min-w-0 flex-1 rounded-xl bg-slate-950 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => void addComment(post)} className="rounded-xl bg-cyan-500 px-3 text-slate-950"><Send className="h-4 w-4" /></button></div>}
         </article>
       ))}
+
+      <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <div className="mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-cyan-400" /><h3 className="text-sm font-bold text-slate-100">Other users</h3></div>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">{otherUsers.map((profile) => <button key={profile.id} className="flex min-w-0 flex-col items-center gap-1" onClick={() => setActiveStory({ id: `profile-${profile.id}`, user_id: profile.id, user_name: profile.full_name, user_avatar: profile.avatar_url, media_url: profile.avatar_url, created_at: new Date().toISOString() })}><img src={profile.avatar_url} alt={profile.full_name} className="h-12 w-12 rounded-full object-cover ring-2 ring-slate-700" /><span className="w-full truncate text-[10px] text-slate-300">{profile.full_name}</span></button>)}</div>
+        {!otherUsers.length && <p className="text-xs text-slate-500">No other users available yet.</p>}
+      </section>
 
       {activeStory && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" onClick={() => setActiveStory(null)}><div className="relative h-[75vh] w-full max-w-sm overflow-hidden rounded-3xl bg-slate-950" onClick={(event) => event.stopPropagation()}><button onClick={() => setActiveStory(null)} className="absolute right-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white"><X className="h-5 w-5" /></button><img src={activeStory.media_url || activeStory.user_avatar} alt={activeStory.user_name} className="h-full w-full object-cover" /><div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 p-4 pt-16"><p className="text-sm font-bold text-white">{activeStory.user_name}</p><p className="text-[10px] text-slate-300">{new Date(activeStory.created_at).toLocaleString()}</p></div></div></div>}
     </div>
