@@ -6,6 +6,7 @@ import {
   Sun,
   Moon,
   LogOut,
+  LogIn,
   Edit3,
   CheckCircle2,
   Grid,
@@ -437,6 +438,14 @@ export const ProfileTab: React.FC<ProfileTabProps> = ({
         >
           <LogOut className="w-4 h-4" />
           <span>Log Out of HeyLook</span>
+        </button>
+
+        <button
+          onClick={onLogout}
+          className="w-full p-3 rounded-2xl flex items-center gap-3 text-cyan-500 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 transition-colors text-sm font-semibold cursor-pointer"
+        >
+          <LogIn className="w-4 h-4" />
+          <span>Log in with a different account</span>
         </button>
       </div>
 
