@@ -122,6 +122,30 @@ ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS audio_url TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS audio_duration TEXT;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS video_url TEXT;
 
+-- Message access for signed-in users. Sender and receiver may read a message;
+-- only the sender can create it.
+ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can read their messages" ON public.messages;
+CREATE POLICY "Users can read their messages" ON public.messages
+  FOR SELECT TO authenticated
+  USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+
+DROP POLICY IF EXISTS "Users can send messages" ON public.messages;
+CREATE POLICY "Users can send messages" ON public.messages
+  FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = sender_id);
+
+DROP POLICY IF EXISTS "Users can update their messages" ON public.messages;
+CREATE POLICY "Users can update their messages" ON public.messages
+  FOR UPDATE TO authenticated
+  USING (auth.uid() = sender_id OR auth.uid() = receiver_id)
+  WITH CHECK (auth.uid() = sender_id OR auth.uid() = receiver_id);
+
+DROP POLICY IF EXISTS "Users can delete their messages" ON public.messages;
+CREATE POLICY "Users can delete their messages" ON public.messages
+  FOR DELETE TO authenticated
+  USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+
 -- STORAGE BUCKET: chat-media
 -- Create this public bucket for photo and video messages.
 INSERT INTO storage.buckets (id, name, public)

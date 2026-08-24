@@ -58,7 +58,7 @@ export interface ChatMessage {
   is_me: boolean;
   status: MessageDeliveryStatus; // 0, 1, 2, 3
   delivery_state?: MessageDeliveryStatus;
-  type?: "text" | "image" | "voice" | "call_log";
+  type?: "text" | "image" | "video" | "voice" | "call_log";
   image_url?: string;
   video_url?: string;
   audio_url?: string;
