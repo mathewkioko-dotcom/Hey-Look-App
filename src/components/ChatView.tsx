@@ -511,6 +511,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // Subscribe to Supabase Messages
   useEffect(() => {
     let unsubscribe: (() => void) | undefined;
+    let isActiveConversation = true;
 
     // ---- RESET MESSAGES ON CONTACT SWITCH ----
     // Whenever the active conversation changes, immediately clear the message
@@ -523,6 +524,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         currentUser.id,
         activeConv.user.id,
       );
+      if (!isActiveConversation) return;
       if (fetched && fetched.length > 0) {
         // Only keep messages that actually belong to the active conversation.
         const scoped = fetched.filter(
@@ -532,7 +534,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
             (m.sender_id === activeConv.user.id &&
               m.receiver_id === currentUser.id),
         );
-        setMessages(scoped);
+        setMessages((prev) => {
+          const merged = new Map(prev.map((message) => [message.id, message]));
+          scoped.forEach((message) => merged.set(message.id, message));
+          return Array.from(merged.values()).sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          );
+        });
       } else if (activeConv.messages && activeConv.messages.length > 0) {
         const formatted = activeConv.messages.map((m) => ({
           ...m,
@@ -542,7 +551,16 @@ export const ChatView: React.FC<ChatViewProps> = ({
               ? 1
               : 3) as MessageDeliveryStatus,
         }));
-        setMessages(filterVanishingMessages(formatted));
+        setMessages((prev) => {
+          const merged = new Map(prev.map((message) => [message.id, message]));
+          filterVanishingMessages(formatted).forEach((message) =>
+            merged.set(message.id, message),
+          );
+          return Array.from(merged.values()).sort(
+            (a, b) =>
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+          );
+        });
       }
     };
 
@@ -599,6 +617,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
     );
 
     return () => {
+      isActiveConversation = false;
       if (unsubscribe) unsubscribe();
     };
   }, [currentUser.id, activeConv.user.id, activeConv.id]);
