@@ -23,6 +23,22 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS public.reel_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reel_id UUID NOT NULL REFERENCES public.reels(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  text TEXT NOT NULL DEFAULT '',
+  media_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.reel_comments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can view reel comments" ON public.reel_comments;
+CREATE POLICY "Authenticated users can view reel comments" ON public.reel_comments
+  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can comment on reels" ON public.reel_comments;
+CREATE POLICY "Users can comment on reels" ON public.reel_comments
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
 -- Drop legacy online/seen columns if present
 ALTER TABLE public.profiles DROP COLUMN IF EXISTS is_online;

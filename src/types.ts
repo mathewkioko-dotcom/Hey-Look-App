@@ -1,4 +1,4 @@
-export type ActiveTab = "chats" | "feed" | "reels" | "profile";
+export type ActiveTab = "home" | "chats" | "feed" | "reels" | "profile";
 
 export type ThemeMode = "dark" | "light";
 
@@ -69,8 +69,10 @@ export interface ChatMessage {
   reply_preview?: {
     sender_name: string;
     text: string;
+    created_at?: string;
     image_url?: string;
   };
+  reactions?: string[];
   call_info?: {
     call_type: "audio" | "video";
     duration?: string;

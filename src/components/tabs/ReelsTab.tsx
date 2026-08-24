@@ -1,4 +1,5 @@
 import React, { useRef, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Heart,
@@ -80,6 +81,22 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   }, [currentUser.id]);
 
   const currentReel = reels[activeReelIndex];
+
+  const renderCommentsOverlay = () => {
+    if (!showComments || !currentReel) return null;
+    return createPortal(
+      <motion.div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/70" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowComments(false)}>
+        <motion.div className="w-full max-w-md max-h-[75dvh] overflow-y-auto rounded-t-3xl bg-slate-900 p-5 pb-[calc(1.25rem+env(safe-area-inset-bottom))] text-white" onClick={(event) => event.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }}>
+          <div className="flex items-center justify-between mb-4"><h3 className="font-bold">Crew Replies</h3><button onClick={() => setShowComments(false)} aria-label="Close comments"><X className="w-5 h-5" /></button></div>
+          <div className="space-y-2 mb-4">{(reelComments[currentReel.id] || []).map((comment, index) => <p key={`${comment}-${index}`} className="p-2 rounded-xl bg-slate-800 text-xs">{comment}</p>)}{!(reelComments[currentReel.id] || []).length && <p className="text-xs text-slate-400">No replies yet. Start the conversation.</p>}</div>
+          <div className="flex gap-2"><input value={commentInput} onChange={(event) => { const value = event.target.value; setCommentInput(value); const match = value.match(/@([\w]*)$/); if (match) void fetchAllProfiles(currentUser.id).then((profiles) => setMentionMatches(profiles.filter((profile) => profile.full_name.toLowerCase().includes(match[1].toLowerCase()) || profile.username.toLowerCase().includes(match[1].toLowerCase())).slice(0, 5))); else setMentionMatches([]); }} placeholder="Write a reply..." className="min-w-0 flex-1 rounded-xl bg-slate-800 px-3 py-2 text-xs outline-none" /><button onClick={() => { if (!commentInput.trim() && !commentMedia) return; const label = commentInput.trim() || "Media reply"; void feedService.addReelComment(currentReel.id, currentUser.id, label, commentMedia).then((sent) => { if (!sent) return; setReelComments((prev) => ({ ...prev, [currentReel.id]: [...(prev[currentReel.id] || []), commentMedia ? `${label} [media]` : label] })); setReels((prev) => prev.map((reel) => reel.id === currentReel.id ? { ...reel, comments_count: reel.comments_count + 1 } : reel)); setCommentInput(""); setCommentMedia(""); }); }} className="rounded-xl bg-pink-500 px-3 text-xs font-bold">Reply</button></div>
+          {mentionMatches.length > 0 && <div className="flex flex-wrap gap-1">{mentionMatches.map((profile) => <button key={profile.id} onClick={() => { setCommentInput((value) => value.replace(/@([\w]*)$/, `@${profile.username} `)); setMentionMatches([]); }} className="rounded-lg bg-slate-800 px-2 py-1 text-[10px]">@{profile.username}</button>)}</div>}
+          <div className="flex items-center gap-2 mt-2"><label className="rounded-xl border border-slate-700 px-3 py-2 text-[10px] cursor-pointer">Add image/GIF<input type="file" accept="image/*,.gif" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file && file.size <= 2 * 1024 * 1024) { const reader = new FileReader(); reader.onload = () => setCommentMedia(String(reader.result || "")); reader.readAsDataURL(file); } }} /></label><button onClick={() => setCommentMedia("https://media.giphy.com/media/3o7TKsQY8z7Qf1mZfG/giphy.gif")} className="rounded-xl border border-slate-700 px-3 py-2 text-[10px]">GIF</button>{commentMedia && <span className="text-[10px] text-pink-300">Media attached</span>}</div>
+        </motion.div>
+      </motion.div>,
+      document.body,
+    );
+  };
 
   const handleToggleLike = (reelId: string) => {
     const reel = reels.find((item) => item.id === reelId);
@@ -582,19 +599,7 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
       )}
 
       {/* REEL CONTEXT MENU MODAL */}
-      <AnimatePresence>
-        {showComments && currentReel && (
-          <motion.div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowComments(false)}>
-            <motion.div className="w-full max-w-md max-h-[65vh] overflow-y-auto rounded-t-3xl bg-slate-900 p-5 text-white" onClick={(event) => event.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }}>
-              <div className="flex items-center justify-between mb-4"><h3 className="font-bold">Crew Replies</h3><button onClick={() => setShowComments(false)} aria-label="Close comments"><X className="w-5 h-5" /></button></div>
-              <div className="space-y-2 mb-4">{(reelComments[currentReel.id] || []).map((comment, index) => <p key={`${comment}-${index}`} className="p-2 rounded-xl bg-slate-800 text-xs">{comment}</p>)}{!(reelComments[currentReel.id] || []).length && <p className="text-xs text-slate-400">No replies yet. Start the conversation.</p>}</div>
-              <div className="flex gap-2"><input value={commentInput} onChange={(event) => { const value = event.target.value; setCommentInput(value); const match = value.match(/@([\w]*)$/); if (match) void fetchAllProfiles(currentUser.id).then((profiles) => setMentionMatches(profiles.filter((profile) => profile.full_name.toLowerCase().includes(match[1].toLowerCase()) || profile.username.toLowerCase().includes(match[1].toLowerCase())).slice(0, 5))); else setMentionMatches([]); }} placeholder="Write a reply..." className="min-w-0 flex-1 rounded-xl bg-slate-800 px-3 py-2 text-xs outline-none" /><button onClick={() => { if (!commentInput.trim() && !commentMedia) return; const label = commentInput.trim() || "Media reply"; void feedService.addReelComment(currentReel.id, currentUser.id, label, commentMedia).then((sent) => { if (!sent) return; setReelComments((prev) => ({ ...prev, [currentReel.id]: [...(prev[currentReel.id] || []), commentMedia ? `${label} [media]` : label] })); setReels((prev) => prev.map((reel) => reel.id === currentReel.id ? { ...reel, comments_count: reel.comments_count + 1 } : reel)); setCommentInput(""); setCommentMedia(""); }); }} className="rounded-xl bg-pink-500 px-3 text-xs font-bold">Reply</button></div>
-              {mentionMatches.length > 0 && <div className="flex flex-wrap gap-1">{mentionMatches.map((profile) => <button key={profile.id} onClick={() => { setCommentInput((value) => value.replace(/@([\w]*)$/, `@${profile.username} `)); setMentionMatches([]); }} className="rounded-lg bg-slate-800 px-2 py-1 text-[10px]">@{profile.username}</button>)}</div>}
-              <div className="flex items-center gap-2 mt-2"><label className="rounded-xl border border-slate-700 px-3 py-2 text-[10px] cursor-pointer">Add image/GIF<input type="file" accept="image/*,.gif" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file && file.size <= 2 * 1024 * 1024) { const reader = new FileReader(); reader.onload = () => setCommentMedia(String(reader.result || "")); reader.readAsDataURL(file); } }} /></label><button onClick={() => setCommentMedia("https://media.giphy.com/media/3o7TKsQY8z7Qf1mZfG/giphy.gif")} className="rounded-xl border border-slate-700 px-3 py-2 text-[10px]">GIF</button>{commentMedia && <span className="text-[10px] text-pink-300">Media attached</span>}</div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {renderCommentsOverlay()}
       {profileToView && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={() => setProfileToView(null)}><div className="w-full max-w-sm rounded-3xl bg-slate-900 p-6 text-center" onClick={(event) => event.stopPropagation()}><img src={profileToView.avatar_url} alt={profileToView.full_name} className="mx-auto h-20 w-20 rounded-full object-cover" /><h3 className="mt-3 font-bold text-white">{profileToView.full_name}</h3><p className="text-xs text-slate-400">@{profileToView.username}</p><button onClick={() => setProfileToView(null)} className="mt-4 rounded-xl bg-pink-500 px-4 py-2 text-xs font-bold">Close Profile</button></div></div>}
       <AnimatePresence>
         {shareOpen && currentReel && (

@@ -102,6 +102,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
               ? currentUser.username
               : activeConv.user.name,
             text: replyingTo.text || replyingTo.audio_url || "Attachment",
+            created_at: replyingTo.created_at,
           }
         : undefined,
     };

@@ -317,8 +317,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     const demoProfiles = {
       default: {
         id: "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
-        username: "brian_kimani",
-        full_name: "Brian Kimani",
+        username: "anonymous_user",
+        full_name: "Anonymous",
         avatar_url:
           "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200",
         is_online: true,

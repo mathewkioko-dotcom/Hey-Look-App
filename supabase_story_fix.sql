@@ -73,6 +73,20 @@ INSERT INTO storage.buckets (id, name, public)
 VALUES ('chat-media', 'chat-media', true)
 ON CONFLICT (id) DO NOTHING;
 
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('voice-notes', 'voice-notes', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Authenticated users can upload voice notes" ON storage.objects;
+CREATE POLICY "Authenticated users can upload voice notes"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'voice-notes');
+
+DROP POLICY IF EXISTS "Anyone can read voice notes" ON storage.objects;
+CREATE POLICY "Anyone can read voice notes"
+ON storage.objects FOR SELECT TO public
+USING (bucket_id = 'voice-notes');
+
 DROP POLICY IF EXISTS "Authenticated users can upload chat media" ON storage.objects;
 CREATE POLICY "Authenticated users can upload chat media"
 ON storage.objects FOR INSERT TO authenticated

@@ -11,12 +11,14 @@ import {
   Moon,
   Sparkles,
   LogOut,
+  Home,
 } from "lucide-react";
 import { ActiveTab, Profile } from "../types";
 import { ChatsTab } from "./tabs/ChatsTab";
 import { FeedTab } from "./tabs/FeedTab";
 import { ReelsTab } from "./tabs/ReelsTab";
 import { ProfileTab } from "./tabs/ProfileTab";
+import { HomeTab } from "./tabs/HomeTab";
 import { AuthScreen } from "./AuthScreen";
 import { useCall } from "../context/CallContext";
 import { CallOverlay } from "./CallOverlay";
@@ -73,6 +75,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [liveNotification, setLiveNotification] = useState<AppNotification | null>(null);
+  const [showNotificationMonitor, setShowNotificationMonitor] = useState(false);
+  const [notificationsSnoozedUntil, setNotificationsSnoozedUntil] = useState<number | null>(null);
 
   const enableNotifications = async () => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
@@ -134,15 +138,15 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           },
           ...previous.filter((item) => item.id !== row.id),
         ].slice(0, 20));
-        setLiveNotification({
+        if (!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) setLiveNotification({
           id: row.id,
           senderName: profile?.full_name || profile?.username || "A HeyLook user",
           senderAvatar: profile?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user",
           text: row.text || row.content || (row.type === "video" ? "sent you a video" : row.type === "image" ? "sent you a photo" : "sent you a message"),
           createdAt: row.created_at,
         });
-        playMessageAlert();
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        if (!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) playMessageAlert();
+        if ((!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) && typeof Notification !== "undefined" && Notification.permission === "granted") {
           new Notification(`New message from ${profile?.full_name || profile?.username || "A HeyLook user"}`, {
             body: row.text || row.content || (row.type === "video" ? "Sent you a video" : row.type === "image" ? "Sent you a photo" : "Sent you a message"),
             icon: profile?.avatar_url || undefined,
@@ -165,8 +169,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           createdAt: reaction.created_at || new Date().toISOString(),
         };
         setNotifications((previous) => [notification, ...previous.filter((item) => item.id !== notification.id)].slice(0, 20));
-        setLiveNotification(notification);
-        playMessageAlert();
+        if (!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) setLiveNotification(notification);
+        if (!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) playMessageAlert();
         window.setTimeout(() => setLiveNotification((current) => current?.id === notification.id ? null : current), 5000);
       })
       .subscribe();
@@ -175,7 +179,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       isMounted = false;
       void supabase.removeChannel(channel);
     };
-  }, [currentUser.id]);
+  }, [currentUser.id, notificationsSnoozedUntil]);
 
   // ---- GLOBAL WEBRTC CALL STATE ----
   // Consumed from the shared CallProvider (mounted at the app root in App.tsx)
@@ -283,6 +287,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                       >
                         Mark read
                       </button>
+                      <button onClick={() => setShowNotificationMonitor(true)} className="text-[10px] text-cyan-400 font-semibold cursor-pointer">Open monitor</button>
                     </div>
                     <div className="space-y-3 text-xs max-h-72 overflow-y-auto">
                       {notifications.length === 0 ? (
@@ -342,6 +347,26 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       </header>
 
       <AnimatePresence>
+        {showNotificationMonitor && (
+          <motion.div className="fixed inset-0 z-[70] bg-slate-950/95 p-4 sm:p-8 overflow-y-auto" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="mx-auto max-w-3xl">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                <div><h2 className="text-xl font-bold text-white">Live Activity Monitor</h2><p className="text-xs text-slate-400">Messages and account activity</p></div>
+                <button onClick={() => setShowNotificationMonitor(false)} className="rounded-xl bg-slate-800 p-2 text-slate-300" aria-label="Close notification monitor">×</button>
+              </div>
+              <div className="flex flex-wrap gap-2 py-4">
+                <button onClick={() => setNotifications([])} className="rounded-xl bg-rose-500/20 px-3 py-2 text-xs font-bold text-rose-300">Clear all</button>
+                <button onClick={() => { setNotificationsSnoozedUntil(Date.now() + 60 * 60 * 1000); setLiveNotification(null); }} className="rounded-xl bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-300">Snooze 1 hour</button>
+                <button onClick={() => { setNotificationsSnoozedUntil(Date.now() + 8 * 60 * 60 * 1000); setLiveNotification(null); }} className="rounded-xl bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-300">Snooze 8 hours</button>
+                <button onClick={() => setNotificationsSnoozedUntil(null)} className="rounded-xl bg-cyan-500/20 px-3 py-2 text-xs font-bold text-cyan-300">Turn notifications on</button>
+              </div>
+              <div className="space-y-2">{notifications.length === 0 ? <p className="py-12 text-center text-sm text-slate-500">No activity yet</p> : notifications.map((notification) => <button key={notification.id} onClick={() => { setActiveTab("chats"); setShowNotificationMonitor(false); }} className="flex w-full items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-left hover:border-cyan-500/50"><img src={notification.senderAvatar} alt="" className="h-10 w-10 rounded-full object-cover" /><span className="min-w-0 flex-1"><span className="block text-sm font-bold text-white">{notification.senderName}</span><span className="block text-xs text-slate-300">{notification.text}</span><span className="block text-[10px] text-slate-500">{new Date(notification.createdAt).toLocaleString()}</span></span></button>)}</div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
         {liveNotification && (
           <motion.button
             type="button"
@@ -376,6 +401,9 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             transition={{ duration: 0.2 }}
             className="h-full"
           >
+            {activeTab === "home" && (
+              <HomeTab currentUser={currentUser} isDark={isDark} />
+            )}
             {activeTab === "chats" && (
               <ChatsTab
                 currentUser={currentUser}
@@ -411,6 +439,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         }`}
       >
         <div className="max-w-md mx-auto flex items-center justify-around p-2 py-2.5 w-full">
+          <button
+            onClick={() => setActiveTab("home")}
+            className={`flex flex-col items-center gap-1 p-1.5 px-3 rounded-2xl transition-all cursor-pointer ${activeTab === "home" ? "text-cyan-500 font-bold bg-cyan-500/10 scale-105" : "text-slate-400"}`}
+          >
+            <Home className="w-5 h-5" />
+            <span className="text-[11px] font-semibold">Home</span>
+          </button>
           {/* Tab 1: WhatsApp Chats */}
           <button
             onClick={() => setActiveTab("chats")}

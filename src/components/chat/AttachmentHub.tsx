@@ -185,6 +185,14 @@ export const AttachmentHub: React.FC<AttachmentHubProps> = ({
   const [rotate, setRotate] = useState(0);
   const [filterPreset, setFilterPreset] = useState("None");
   const [textOverlay, setTextOverlay] = useState("");
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const cameraPreviewRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    if (cameraPreviewRef.current && cameraStream) {
+      cameraPreviewRef.current.srcObject = cameraStream;
+    }
+  }, [cameraStream]);
 
   // ---------- Audio state ----------
   const [audioMode, setAudioMode] = useState<"hub" | "recording">("hub");
@@ -244,8 +252,34 @@ console.log(greetFleet("Captain"));`,
   };
 
   const closeHub = () => {
+    cameraStream?.getTracks().forEach((track) => track.stop());
+    setCameraStream(null);
     resetAll();
     onClose();
+  };
+
+  const openDeviceCamera = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" }, audio: false });
+      setCameraStream(stream);
+      if (cameraPreviewRef.current) cameraPreviewRef.current.srcObject = stream;
+    } catch (error) {
+      console.warn("[AttachmentHub] Camera permission failed:", error);
+      showToast("Camera permission is required");
+    }
+  };
+
+  const captureDevicePhoto = () => {
+    const video = cameraPreviewRef.current;
+    if (!video || !cameraStream) return;
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setSelectedImage(canvas.toDataURL("image/jpeg", 0.82));
+    cameraStream.getTracks().forEach((track) => track.stop());
+    setCameraStream(null);
+    setGalleryMode("editor");
   };
 
   const filteredGifs = GIFS.filter(() => true);
@@ -451,10 +485,11 @@ console.log(greetFleet("Captain"));`,
       return (
         <div className="space-y-4">
           <Header title="Camera / Gallery" subtitle="Pick a photo, then edit it" color="text-pink-400" bg="bg-pink-500/20 border-pink-500/30" icon={<Camera className="w-6 h-6" />} onBack={() => setView("hub")} />
-          <button onClick={() => { showToast("Camera opened"); }} className="w-full border-2 border-dashed border-slate-700 rounded-2xl p-4 text-center hover:border-pink-500/50 transition-colors cursor-pointer bg-slate-950/50">
+          <button onClick={() => void openDeviceCamera()} className="w-full border-2 border-dashed border-slate-700 rounded-2xl p-4 text-center hover:border-pink-500/50 transition-colors cursor-pointer bg-slate-950/50">
             <Camera className="w-7 h-7 text-pink-400 mx-auto mb-1" />
             <p className="text-xs font-semibold text-slate-200">Take a photo</p>
           </button>
+          {cameraStream && <div className="space-y-2"><video ref={cameraPreviewRef} autoPlay muted playsInline className="w-full h-56 rounded-2xl object-cover bg-black" /><div className="flex gap-2"><button onClick={captureDevicePhoto} className="flex-1 rounded-xl bg-pink-500 py-2 text-xs font-bold text-white">Capture Photo</button><button onClick={() => { cameraStream.getTracks().forEach((track) => track.stop()); setCameraStream(null); }} className="rounded-xl bg-slate-800 px-4 py-2 text-xs text-white">Cancel</button></div></div>}
           <button onClick={() => mediaFileInputRef.current?.click()} className="w-full border-2 border-dashed border-slate-700 rounded-2xl p-4 text-center hover:border-pink-500/50 transition-colors cursor-pointer bg-slate-950/50">
             <Upload className="w-7 h-7 text-pink-400 mx-auto mb-1" />
             <p className="text-xs font-semibold text-slate-200">Upload a photo</p>

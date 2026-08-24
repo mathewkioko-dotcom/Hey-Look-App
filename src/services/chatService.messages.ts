@@ -127,13 +127,8 @@ export async function sendMessage(
       call_info: newMessage.call_info,
       created_at: newMessage.created_at,
     };
-    // SCHEMA-GUARD: `reply_preview` is a client-only construct (and
-    // `reply_to_id` may be unmapped in the `messages` table). Strip both from
-    // the DB insert payload so PostgREST does not reject the insert with an
-    // "column does not exist" error. They remain on the returned `newMessage`
-    // so the UI can still render reply previews locally.
-    delete insertPayload.reply_preview;
-    delete insertPayload.reply_to_id;
+    if (newMessage.reply_to_id) insertPayload.reply_to_id = newMessage.reply_to_id;
+    if (newMessage.reply_preview) insertPayload.reply_preview = newMessage.reply_preview;
     // Only attach room_id when it is a valid UUID; otherwise omit it so the
     // insert does not fail (or violate the NOT NULL constraint) with an
     // invalid/non-UUID or stripped-to-empty value.

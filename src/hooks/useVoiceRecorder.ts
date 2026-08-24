@@ -137,7 +137,7 @@ export function useVoiceRecorder(currentUserId?: string) {
       const previewUrl = URL.createObjectURL(blob);
 
       // Upload to Supabase Storage with a stable per-user + timestamp path.
-      let publicUrl = previewUrl;
+      let publicUrl: string | null = null;
       try {
         const ext = mimeType.includes("ogg")
           ? "ogg"
@@ -145,17 +145,17 @@ export function useVoiceRecorder(currentUserId?: string) {
             ? "m4a"
             : "webm";
         const fileName = `${currentUserId || "anon"}_${Date.now()}.${ext}`;
-        const filePath = `voice-notes/${fileName}`;
+        const filePath = `${currentUserId || "anon"}/${fileName}`;
 
         const { data, error: uploadError } = await supabase.storage
           .from(STORAGE_BUCKET)
           .upload(filePath, blob, { contentType: mimeType, upsert: false });
 
         if (uploadError) {
-          console.warn(
-            "[useVoiceRecorder] Storage upload failed, using object URL fallback:",
-            uploadError.message,
-          );
+          console.warn("[useVoiceRecorder] Storage upload failed:", uploadError.message);
+          URL.revokeObjectURL(previewUrl);
+          setError("Voice note upload failed. Please try again.");
+          return null;
         } else {
           const { data: publicData } = supabase.storage
             .from(STORAGE_BUCKET)
@@ -166,7 +166,12 @@ export function useVoiceRecorder(currentUserId?: string) {
         }
       } catch (err) {
         console.warn("[useVoiceRecorder] Upload exception:", err);
+        URL.revokeObjectURL(previewUrl);
+        setError("Voice note upload failed. Please try again.");
+        return null;
       }
+
+      if (!publicUrl) return null;
 
       return {
         audioUrl: publicUrl,

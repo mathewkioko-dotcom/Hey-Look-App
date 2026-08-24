@@ -1853,6 +1853,9 @@ const isMe =
                       {msg.reply_preview.sender_name}:{" "}
                     </span>
                     <span className="truncate">{msg.reply_preview.text}</span>
+                    <span className="ml-2 text-[9px] text-slate-400">
+                      {new Date(msg.reply_preview.created_at || msg.created_at).toLocaleString()}
+                    </span>
                   </div>
                 )}
 
