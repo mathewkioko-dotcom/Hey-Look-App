@@ -49,6 +49,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [globalSearch, setGlobalSearch] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [liveNotification, setLiveNotification] = useState<AppNotification | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -76,7 +77,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             id: row.id,
             senderName: profile.full_name || profile.username || "A HeyLook user",
             senderAvatar: profile.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user",
-            text: row.text || row.content || (row.type === "image" ? "Sent a photo" : "Sent you a message"),
+            text: row.text || row.content || (row.type === "video" ? "Sent a video" : row.type === "image" ? "Sent a photo" : "Sent you a message"),
             createdAt: row.created_at,
           };
         }),
@@ -99,11 +100,21 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             id: row.id,
             senderName: profile?.full_name || profile?.username || "A HeyLook user",
             senderAvatar: profile?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user",
-            text: row.text || row.content || (row.type === "image" ? "Sent a photo" : "Sent you a message"),
+            text: row.text || row.content || (row.type === "video" ? "Sent a video" : row.type === "image" ? "Sent a photo" : "Sent you a message"),
             createdAt: row.created_at,
           },
           ...previous.filter((item) => item.id !== row.id),
         ].slice(0, 20));
+        setLiveNotification({
+          id: row.id,
+          senderName: profile?.full_name || profile?.username || "A HeyLook user",
+          senderAvatar: profile?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user",
+          text: row.text || row.content || (row.type === "video" ? "sent you a video" : row.type === "image" ? "sent you a photo" : "sent you a message"),
+          createdAt: row.created_at,
+        });
+        window.setTimeout(() => {
+          setLiveNotification((current) => current?.id === row.id ? null : current);
+        }, 5000);
       })
       .subscribe();
 
@@ -273,6 +284,30 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           </div>
         </div>
       </header>
+
+      <AnimatePresence>
+        {liveNotification && (
+          <motion.button
+            type="button"
+            onClick={() => {
+              setActiveTab("chats");
+              setShowNotifications(true);
+              setLiveNotification(null);
+            }}
+            initial={{ opacity: 0, y: -18, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -18, scale: 0.96 }}
+            className="fixed top-20 right-3 z-[60] w-[min(22rem,calc(100vw-1.5rem))] flex items-center gap-3 p-3 rounded-2xl bg-slate-900 border border-cyan-500/50 text-left text-white shadow-2xl"
+            aria-label={`New message from ${liveNotification.senderName}`}
+          >
+            <img src={liveNotification.senderAvatar} alt="" className="w-9 h-9 rounded-full object-cover shrink-0" />
+            <span className="min-w-0">
+              <span className="block text-xs font-bold text-cyan-300">New message from {liveNotification.senderName}</span>
+              <span className="block text-xs text-slate-200 truncate">{liveNotification.text}</span>
+            </span>
+          </motion.button>
+        )}
+      </AnimatePresence>
 
       {/* MAIN BODY CONTENT CONTAINER */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 py-3 sm:px-6 sm:py-6 pb-20 md:pb-24 overflow-x-hidden">
