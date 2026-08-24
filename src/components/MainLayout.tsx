@@ -226,7 +226,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       >
         <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
           {/* Brand Logo & Name */}
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center gap-1 sm:gap-3 shrink-0">
             <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-indigo-600 via-purple-600 to-pink-500 p-0.5 shadow-md shadow-indigo-500/20">
               <div
                 className={`w-full h-full rounded-[14px] flex items-center justify-center ${
@@ -236,8 +236,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 <Sparkles className="w-5 h-5 text-indigo-500" />
               </div>
             </div>
-            <div className="hidden sm:block">
-              <span className="font-extrabold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500">
+            <div className="flex flex-col items-center sm:items-start">
+              <span className="hidden sm:block font-extrabold text-lg tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500">
                 HeyLook
               </span>
               <span className="block text-[10px] text-slate-400 font-semibold tracking-wider">
