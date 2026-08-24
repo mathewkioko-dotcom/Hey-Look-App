@@ -102,8 +102,18 @@ export const WaveformPlayer: React.FC<WaveformPlayerProps> = ({
       audio.pause();
       setIsPlaying(false);
     } else {
-      audio.play();
-      setIsPlaying(true);
+      // `play()` returns a Promise that rejects on autoplay-policy blocks,
+      // unsupported codecs, network/CORS failures, etc. Previously this was
+      // fired-and-forgotten while `isPlaying` was set optimistically, so a
+      // failed play left the button stuck showing "Pause" with nothing
+      // actually playing. Await it and roll the state back on failure.
+      audio
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => {
+          console.warn("[WaveformPlayer] Playback failed:", err);
+          setIsPlaying(false);
+        });
     }
   };
 

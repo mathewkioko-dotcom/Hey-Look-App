@@ -204,20 +204,6 @@ CREATE POLICY "Authenticated users can view reel comments" ON public.reel_commen
 DROP POLICY IF EXISTS "Users can comment on reels" ON public.reel_comments;
 CREATE POLICY "Users can comment on reels" ON public.reel_comments FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
--- Enable database INSERT events for the app's real-time notifications.
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1
-    FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime'
-      AND schemaname = 'public'
-      AND tablename = 'messages'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
-  END IF;
-END $$;
-
 -- One-way fleet membership used by Join Fleet / Mutiny and The Manifest.
 CREATE TABLE IF NOT EXISTS public.user_blocks (
   blocker_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -239,6 +225,23 @@ CREATE POLICY "Users can unblock users" ON public.user_blocks FOR DELETE TO auth
   USING (auth.uid() = blocker_id);
 
 -- Durable, recipient-owned activity notifications.
+CREATE TABLE IF NOT EXISTS public.call_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  caller_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  receiver_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  caller_name TEXT NOT NULL DEFAULT 'HeyLook User',
+  caller_avatar TEXT NOT NULL DEFAULT '',
+  call_type TEXT NOT NULL CHECK (call_type IN ('audio', 'video')),
+  status TEXT NOT NULL CHECK (status IN ('connected', 'missed')),
+  duration TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+ALTER TABLE public.call_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view their call logs" ON public.call_logs;
+CREATE POLICY "Users can view their call logs" ON public.call_logs FOR SELECT TO authenticated USING (auth.uid() = caller_id OR auth.uid() = receiver_id);
+DROP POLICY IF EXISTS "Users can create their call logs" ON public.call_logs;
+CREATE POLICY "Users can create their call logs" ON public.call_logs FOR INSERT TO authenticated WITH CHECK (auth.uid() = caller_id OR auth.uid() = receiver_id);
+
 CREATE TABLE IF NOT EXISTS public.notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   recipient_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -296,13 +299,6 @@ CREATE TRIGGER notify_post_like AFTER INSERT ON public.likes FOR EACH ROW EXECUT
 DROP TRIGGER IF EXISTS notify_post_comment ON public.comments;
 CREATE TRIGGER notify_post_comment AFTER INSERT ON public.comments FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
 
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications') THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
-  END IF;
-END $$;
-
 CREATE TABLE IF NOT EXISTS public.follows (
   follower_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   following_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
@@ -325,16 +321,6 @@ CREATE POLICY "Users can join a fleet" ON public.follows
 DROP POLICY IF EXISTS "Users can mutiny from a fleet" ON public.follows;
 CREATE POLICY "Users can mutiny from a fleet" ON public.follows
   FOR DELETE TO authenticated USING (auth.uid() = follower_id);
-
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'follows'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.follows;
-  END IF;
-END $$;
 
 DROP POLICY IF EXISTS "Users can respond to fleet requests" ON public.follows;
 CREATE POLICY "Users can respond to fleet requests" ON public.follows
@@ -370,16 +356,6 @@ DROP POLICY IF EXISTS "Users can remove story reactions" ON public.story_reactio
 CREATE POLICY "Users can remove story reactions" ON public.story_reactions
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
 
-DO $$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_publication_tables
-    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'story_reactions'
-  ) THEN
-    ALTER PUBLICATION supabase_realtime ADD TABLE public.story_reactions;
-  END IF;
-END $$;
-
 ALTER TABLE public.story_views ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can record story views" ON public.story_views;
 CREATE POLICY "Users can record story views" ON public.story_views
@@ -390,3 +366,39 @@ CREATE POLICY "Story owners can view audience counts" ON public.story_views
     EXISTS (SELECT 1 FROM public.stories WHERE stories.id = story_views.story_id AND stories.user_id = auth.uid())
     OR viewer_id = auth.uid()
   );
+
+-- ============================================================================
+-- REALTIME PUBLICATION CHANGES — run this block ALONE (select just this
+-- section and execute it separately from everything above). ALTER PUBLICATION
+-- takes an AccessExclusiveLock and can deadlock against Supabase's Realtime
+-- replication worker if it runs inside the same batch/transaction as other
+-- DDL. If you still hit "deadlock detected", just re-run this block again —
+-- it's a transient lock collision, not a logic error.
+-- ============================================================================
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'follows') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.follows;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'story_reactions') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.story_reactions;
+  END IF;
+END $$;

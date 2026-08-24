@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus, Pause, Play } from "lucide-react";
-import { FeedPost, Profile } from "../../types";
+import { CallLog, FeedPost, Profile } from "../../types";
 import { feedService, StoryItem } from "../../services/feedService";
 import { supabase } from "../../lib/supabase";
 import { fetchAllProfiles } from "../../services/chatService.profiles";
+import { fetchRecentCallLogs } from "../../services/chatService.calls";
+import { useCall } from "../../context/CallContext";
 
 interface HomeTabProps {
   currentUser: Profile;
@@ -19,6 +21,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
   const [commentOpen, setCommentOpen] = useState<Record<string, boolean>>({});
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [recentCalls, setRecentCalls] = useState<CallLog[]>([]);
+  const { startCall } = useCall();
   const [otherUsers, setOtherUsers] = useState<Profile[]>([]);
   const [newPostText, setNewPostText] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
@@ -38,8 +42,10 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
       feedService.fetchPosts(currentUser.id),
       feedService.fetchStories(currentUser.id),
     ]);
+    const calls = await fetchRecentCallLogs(currentUser.id);
     setPosts(homePosts);
     setStories(homeStories);
+    setRecentCalls(calls);
     const profiles = await fetchAllProfiles(currentUser.id);
     setOtherUsers(profiles.filter((profile) => profile.id !== currentUser.id).slice(0, 24));
     const authorIds = homePosts.map((post) => post.user_id).filter((id): id is string => Boolean(id) && id !== currentUser.id);
@@ -110,6 +116,14 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
     setIsPublishing(false);
   };
 
+  const callBack = async (call: CallLog) => {
+    const otherUserId = call.caller_id === currentUser.id ? call.receiver_id : call.caller_id;
+    const profile = otherUserId === call.caller_id
+      ? { id: call.caller_id, username: call.caller_name, full_name: call.caller_name, avatar_url: call.caller_avatar }
+      : await import("../../services/chatService.profiles").then(({ fetchProfileById }) => fetchProfileById(otherUserId));
+    if (profile) await startCall(profile, call.call_type);
+  };
+
   return (
     <div className="mx-auto max-w-2xl space-y-5 pb-12">
       <header className="flex items-center gap-2 px-2">
@@ -130,6 +144,11 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
             <span className="w-full truncate text-[10px] text-slate-300">{story.user_name}</span>
           </button>;
         })}
+      </section>
+
+      <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-bold text-slate-100">Calls</h3><span className="text-[10px] text-slate-500">Recent log</span></div>
+        <div className="space-y-2">{recentCalls.length === 0 ? <p className="text-xs text-slate-500">No calls recorded yet.</p> : recentCalls.map((call) => { const incoming = call.receiver_id === currentUser.id; const name = incoming ? call.caller_name : "You"; return <div key={call.id} className="flex items-center gap-3 rounded-xl bg-slate-950 p-3"><img src={call.caller_avatar} alt={name} className="h-9 w-9 rounded-full object-cover" /><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-200">{name} <span className={call.status === "missed" ? "text-rose-400" : "text-emerald-400"}>{call.status === "missed" ? "Missed" : "Connected"}</span></p><p className="text-[10px] text-slate-500">{call.call_type === "video" ? "Video" : "Voice"} • {new Date(call.created_at).toLocaleString()} {call.duration ? `• ${call.duration}` : ""}</p></div><button onClick={() => void callBack(call)} className="rounded-xl bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950">Call</button></div>; })}</div>
       </section>
 
       <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>

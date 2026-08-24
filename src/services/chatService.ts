@@ -53,7 +53,7 @@ import {
   fetchAllProfiles,
   fetchProfileById,
 } from "./chatService.profiles";
-import { recordCallLog } from "./chatService.calls";
+import { recordCallLog, fetchRecentCallLogs } from "./chatService.calls";
 import { callChatEdgeProxy } from "./chatService.edge";
 
 // Re-export shared helpers so named imports like
@@ -91,6 +91,7 @@ export const chatService = {
   deleteMessage,
   clearHistory,
   recordCallLog,
+  fetchRecentCallLogs,
   callChatEdgeProxy,
   reactToMessage,
   forwardMessages,

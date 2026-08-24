@@ -21,3 +21,19 @@ export async function recordCallLog(
 
   return newLog;
 }
+
+export async function fetchRecentCallLogs(userId: string, limit = 20): Promise<CallLog[]> {
+  try {
+    const { data, error } = await supabase
+      .from("call_logs")
+      .select("*")
+      .or(`caller_id.eq.${userId},receiver_id.eq.${userId}`)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return data as CallLog[];
+  } catch (err) {
+    console.warn("[ChatService] Call log fetch failed:", err);
+    return [];
+  }
+}
