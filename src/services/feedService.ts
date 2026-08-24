@@ -497,16 +497,6 @@ export const feedService = {
     privacyLevel: PrivacyLevel = 'Public'
   ): Promise<boolean> {
     try {
-      const { error: profileError } = await supabase.from('profiles').upsert({
-        id: userId,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'id' });
-
-      if (profileError) {
-        console.warn('[FeedService] Story profile upsert failed:', profileError.message);
-        return false;
-      }
-
       const finalMediaUrl = await feedService.uploadStoryMedia(userId, mediaUrl);
 
       const { error } = await supabase.from('stories').insert({

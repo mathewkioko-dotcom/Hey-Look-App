@@ -72,6 +72,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   const [storyMediaInput, setStoryMediaInput] = useState('');
   const [storyPrivacyLevel, setStoryPrivacyLevel] = useState<PrivacyLevel>('Public');
   const [isPublishingStory, setIsPublishingStory] = useState(false);
+  const [storyPublishError, setStoryPublishError] = useState('');
   const [storyFileName, setStoryFileName] = useState('');
 
   // Story viewer state
@@ -263,6 +264,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   const handleCreateStorySubmit = async () => {
     if (!storyMediaInput.trim()) return;
     setIsPublishingStory(true);
+    setStoryPublishError('');
 
     try {
       const success = await feedService.createStory(
@@ -277,7 +279,12 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
         setIsStoryModalOpen(false);
         const updatedStories = await feedService.fetchStories(currentUser.id);
         setStories(updatedStories);
+      } else {
+        setStoryPublishError('Story could not be published. Check your connection and try again.');
       }
+    } catch (error) {
+      console.warn('[FeedTab] Story publish failed:', error);
+      setStoryPublishError('Story could not be published. Check your connection and try again.');
     } finally {
       setIsPublishingStory(false);
     }
@@ -1080,6 +1087,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
             >
               {isPublishingStory ? 'Publishing Story...' : 'Publish Story'}
             </button>
+            {storyPublishError && (
+              <p className="text-xs text-rose-300 text-center" role="alert">
+                {storyPublishError}
+              </p>
+            )}
           </div>
         </div>
       )}

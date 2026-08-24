@@ -73,8 +73,8 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 }) => {
   return (
     <div className="p-3 px-4 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-xl flex flex-col gap-2 z-20 shrink-0">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
+      <div className="flex items-center justify-between gap-2 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           {onBack && (
             <button
               onClick={onBack}
@@ -87,7 +87,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           {/* User Avatar - Clicking opens User Profile Card */}
           <div
             onClick={onOpenProfile}
-            className="relative cursor-pointer group"
+            className="relative cursor-pointer group shrink-0"
             title="View User Profile Card"
           >
             <img
@@ -109,11 +109,11 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           </div>
 
           {/* Name & Dynamic Nautical Presence */}
-          <div>
-            <div className="flex items-center gap-2 flex-wrap">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
               <h3
                 onClick={onOpenProfile}
-                className="font-bold text-sm sm:text-base text-slate-100 hover:text-cyan-300 cursor-pointer transition-colors"
+                className="font-bold text-sm sm:text-base text-slate-100 hover:text-cyan-300 cursor-pointer transition-colors truncate"
               >
                 {activeConv.user.name}
               </h3>
@@ -124,7 +124,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               )}
 
               {/* Model Selector Header Dropdown */}
-              <div className="relative z-30">
+              <div className="relative z-30 hidden sm:block shrink-0">
                 <button
                   onClick={onToggleModelDropdown}
                   className="px-2.5 py-0.5 rounded-lg bg-slate-800/90 hover:bg-slate-800 border border-cyan-500/30 text-[11px] text-cyan-300 font-semibold flex items-center gap-1.5 hover:border-cyan-400 transition cursor-pointer shadow-sm"
@@ -197,7 +197,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               {livePresence ? (
                 <div className="flex items-center gap-1.5 text-xs font-medium mt-0.5">
                   <span
@@ -251,7 +251,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         </div>
 
         {/* Header Right Actions */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0">
           <button
             onClick={onOpenCanvas}
             className="p-2 rounded-xl text-slate-300 hover:text-cyan-400 hover:bg-slate-800 transition-colors cursor-pointer flex items-center gap-1"

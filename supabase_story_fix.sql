@@ -1,6 +1,8 @@
 -- Story media bucket + stories table unblock.
 -- Run this in your Supabase SQL editor.
 
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('story-media', 'story-media', true)
 ON CONFLICT (id) DO NOTHING;

@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 
-const defaultUrl = 'https://vjgejpcglyadjladwygt.supabase.co';
+const defaultUrl = 'https://seeunrcgiecikiszrvrx.supabase.co';
 const defaultKey = 'sb_publishable_3uvan_uyBwAGiISd1GA6Dw_Hn9LtUOD';
 
 function getValidUrl(urlStr: string | undefined): string {
