@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { sendMessage } from './chatService.messages';
-import { FeedPost, ReelItem, Profile, PostComment, ReactionType, PollData, PrivacyLevel } from '../types';
+import { FeedPost, ReelItem, Profile, PostComment, ReactionType, PollData, PrivacyLevel, Beacon } from '../types';
 
 export interface StoryItem {
   id: string;
@@ -458,6 +458,103 @@ export const feedService = {
     } catch (err) {
       console.warn('[FeedService] Error fetching stories:', err);
       return [];
+    }
+  },
+
+  /**
+   * Fetch active (unexpired), audience-visible Beacons for the Home feed.
+   * RLS on `beacons` already restricts rows to what this user is allowed to
+   * see (Everyone / Contacts Only / This Chat Only), so no extra filtering
+   * is needed client-side beyond dropping expired ones.
+   */
+  async fetchActiveBeacons(currentUserId: string): Promise<Beacon[]> {
+    try {
+      const { data, error } = await supabase
+        .from('beacons')
+        .select('*')
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false });
+
+      if (error || !data) return [];
+
+      const userIds = Array.from(new Set(data.map((b: any) => b.user_id).filter(Boolean)));
+      let profileMap: Record<string, any> = {};
+      if (userIds.length > 0) {
+        const { data: profiles } = await supabase.from('profiles').select('*').in('id', userIds);
+        if (profiles) profiles.forEach((p: any) => { profileMap[p.id] = p; });
+      }
+
+      return data.map((b: any) => {
+        const p = profileMap[b.user_id] || {};
+        return {
+          id: b.id,
+          user_id: b.user_id,
+          author: {
+            name: p.full_name || p.username || 'Nautical Explorer',
+            avatar: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+            username: p.username,
+          },
+          media_type: b.media_type,
+          content_url: b.content_url || undefined,
+          text_content: b.text_content || undefined,
+          bg_gradient: b.bg_gradient || undefined,
+          custom_hex: b.custom_hex || undefined,
+          font_family: b.font_family || undefined,
+          caption_font_family: b.caption_font_family || undefined,
+          audio_visualizer: b.audio_visualizer || undefined,
+          is_one_time: b.is_one_time,
+          created_at: b.created_at,
+          expires_at: b.expires_at,
+          ttl_setting: b.ttl_setting,
+          allow_public_comments: b.allow_public_comments,
+          viewed_by: [],
+          comments: [],
+          audience: b.audience,
+          shared_with_user_id: b.shared_with_user_id || undefined,
+        } as Beacon;
+      });
+    } catch (err) {
+      console.warn('[FeedService] Error fetching active beacons:', err);
+      return [];
+    }
+  },
+
+  /**
+   * Reply to a Beacon. Public replies persist to `beacon_comments`; private
+   * replies are delivered as a real DM to the Beacon's creator instead.
+   */
+  async addBeaconComment(
+    beacon: Beacon,
+    userId: string,
+    text: string,
+    isPrivateDm: boolean,
+  ): Promise<boolean> {
+    try {
+      if (isPrivateDm) {
+        if (beacon.user_id === userId) return false;
+        await sendMessage({
+          sender_id: userId,
+          receiver_id: beacon.user_id,
+          text: `📡 Replying to your Beacon: "${text}"`,
+          type: 'text',
+          created_at: new Date().toISOString(),
+        });
+        return true;
+      }
+      const { error } = await supabase.from('beacon_comments').insert({
+        beacon_id: beacon.id,
+        user_id: userId,
+        text,
+        is_private_dm: false,
+      });
+      if (error) {
+        console.warn('[FeedService] Beacon comment insert note:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      console.warn('[FeedService] Exception adding beacon comment:', err);
+      return false;
     }
   },
 

@@ -21,7 +21,9 @@ import {
   Upload,
   FileAudio,
   Activity,
-  Sliders
+  Sliders,
+  Users,
+  CheckCircle2,
 } from 'lucide-react';
 import { Beacon, Profile } from '../types';
 import { supabase } from '../lib/supabase';
@@ -31,6 +33,9 @@ interface BeaconModalProps {
   onClose: () => void;
   currentUser: Profile;
   onCreateBeacon: (newBeacon: Beacon) => void;
+  /** Present only when the modal is opened from within a 1:1 chat — enables
+   * the "This Chat Only" audience option, scoped to that chat partner. */
+  chatPartner?: { id: string; name: string };
 }
 
 const PRESET_GRADIENTS = [
@@ -149,6 +154,7 @@ export const BeaconModal: React.FC<BeaconModalProps> = ({
   onClose,
   currentUser,
   onCreateBeacon,
+  chatPartner,
 }) => {
   const [mediaType, setMediaType] = useState<'image' | 'video' | 'audio' | 'text'>('text');
   const [textContent, setTextContent] = useState('');
@@ -185,6 +191,12 @@ export const BeaconModal: React.FC<BeaconModalProps> = ({
   const [customHours, setCustomHours] = useState<number>(3);
   const [allowPublicComments, setAllowPublicComments] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Audience: who can see this Beacon. Defaults to a chat-scoped anchor when
+  // opened from within a 1:1 chat, otherwise visible to everyone.
+  const [audience, setAudience] = useState<'Everyone' | 'Contacts Only' | 'This Chat Only'>(
+    chatPartner ? 'This Chat Only' : 'Everyone',
+  );
 
   // Load selected fonts dynamically
   useEffect(() => {
@@ -412,6 +424,7 @@ export const BeaconModal: React.FC<BeaconModalProps> = ({
 
     const { expiresAt } = calculateExpiresAt();
     const isOneTime = ttlSetting === '1-time';
+    const sharedWithUserId = audience === 'This Chat Only' ? chatPartner?.id : undefined;
 
     const newBeacon: Beacon = {
       id: `beacon_${Date.now()}`,
@@ -436,27 +449,40 @@ export const BeaconModal: React.FC<BeaconModalProps> = ({
       allow_public_comments: allowPublicComments,
       viewed_by: [currentUser.id],
       comments: [],
+      audience,
+      shared_with_user_id: sharedWithUserId,
     };
 
     try {
-      const { error } = await supabase.from('beacons').insert({
-        user_id: currentUser.id,
-        media_type: mediaType,
-        content_url: finalMediaUrl || mediaPreviewUrl || recordedAudioUrl || null,
-        text_content: newBeacon.text_content,
-        bg_gradient: useCustomHex ? null : selectedGradient,
-        custom_hex: useCustomHex ? customHex : null,
-        font_family: mainFontFamily,
-        caption_font_family: captionFontFamily,
-        audio_visualizer: mediaType === 'audio' ? audioVisualizer : null,
-        expires_at: expiresAt,
-        ttl_setting: ttlSetting,
-        allow_public_comments: allowPublicComments,
-        is_one_time: isOneTime,
-      });
+      const { data, error } = await supabase
+        .from('beacons')
+        .insert({
+          user_id: currentUser.id,
+          media_type: mediaType,
+          content_url: finalMediaUrl || mediaPreviewUrl || recordedAudioUrl || null,
+          text_content: newBeacon.text_content,
+          bg_gradient: useCustomHex ? null : selectedGradient,
+          custom_hex: useCustomHex ? customHex : null,
+          font_family: mainFontFamily,
+          caption_font_family: captionFontFamily,
+          audio_visualizer: mediaType === 'audio' ? audioVisualizer : null,
+          expires_at: expiresAt,
+          ttl_setting: ttlSetting,
+          allow_public_comments: allowPublicComments,
+          is_one_time: isOneTime,
+          audience,
+          shared_with_user_id: sharedWithUserId || null,
+        })
+        .select()
+        .single();
 
       if (error) {
         console.warn('[Supabase Beacon Insert Note]:', error.message);
+      } else if (data?.id) {
+        // Use the real DB-generated id (not the client placeholder) so
+        // downstream features that reference this beacon by id — anchoring
+        // it to a chat, deleting it, commenting — all resolve correctly.
+        newBeacon.id = data.id;
       }
     } catch (err) {
       console.warn('[Supabase Beacon Insert Exception]:', err);
@@ -1001,6 +1027,39 @@ export const BeaconModal: React.FC<BeaconModalProps> = ({
                 }`}
               />
             </button>
+          </div>
+
+          {/* 6. Audience */}
+          <div className="p-3.5 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
+            <span className="text-xs font-bold text-white flex items-center gap-2">
+              <Users className="w-4 h-4 text-cyan-400" /> Who can see this Beacon?
+            </span>
+            <div className="space-y-1.5">
+              {(
+                [
+                  { k: 'Everyone' as const, label: 'Everyone', desc: 'Visible to anyone on HeyLook' },
+                  { k: 'Contacts Only' as const, label: 'Contacts Only', desc: 'Only accepted fleet members' },
+                  ...(chatPartner
+                    ? [{ k: 'This Chat Only' as const, label: `Just ${chatPartner.name} (This Chat)`, desc: 'Anchored to this conversation only' }]
+                    : []),
+                ]
+              ).map((opt) => (
+                <button
+                  key={opt.k}
+                  type="button"
+                  onClick={() => setAudience(opt.k)}
+                  className={`w-full flex items-center gap-3 p-2.5 rounded-xl border transition-all cursor-pointer text-left ${
+                    audience === opt.k ? 'border-cyan-500/60 bg-cyan-500/10' : 'border-slate-700 bg-slate-900/50'
+                  }`}
+                >
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-slate-200">{opt.label}</p>
+                    <p className="text-[10px] text-slate-500">{opt.desc}</p>
+                  </div>
+                  {audience === opt.k && <CheckCircle2 className="w-4 h-4 text-cyan-400" />}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Submit Action Button */}

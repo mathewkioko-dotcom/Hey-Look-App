@@ -1290,39 +1290,102 @@ export const ChatView: React.FC<ChatViewProps> = ({
   // ---------------------------------------------------------------------------
   // BEACON (Instagram-style story ring) handlers
   // ---------------------------------------------------------------------------
-  // Load anchored beacon for this conversation from localStorage on mount
-  useEffect(() => {
-    try {
-      const stored = localStorage.getItem(`anchored_beacon_${activeConv.id}`);
-      if (stored) {
-        setAnchoredBeaconId(stored);
-      }
-    } catch (e) {
-      console.warn("[ChatView] Failed to load anchored beacon:", e);
-    }
-  }, [activeConv.id]);
+  // Maps a raw `beacons` row into the app's Beacon shape. Since a chat-anchored
+  // beacon can only have been created by one of this chat's two participants,
+  // the author profile is resolved locally instead of a separate DB round trip.
+  const mapBeaconRow = (row: any): Beacon => {
+    const authorProfile = row.user_id === currentUser.id ? currentUser : targetProfile;
+    return {
+      id: row.id,
+      user_id: row.user_id,
+      author: {
+        name: authorProfile.full_name || authorProfile.username,
+        avatar: authorProfile.avatar_url,
+        username: authorProfile.username,
+      },
+      media_type: row.media_type,
+      content_url: row.content_url || undefined,
+      text_content: row.text_content || undefined,
+      bg_gradient: row.bg_gradient || undefined,
+      custom_hex: row.custom_hex || undefined,
+      font_family: row.font_family || undefined,
+      caption_font_family: row.caption_font_family || undefined,
+      audio_visualizer: row.audio_visualizer || undefined,
+      is_one_time: row.is_one_time,
+      created_at: row.created_at,
+      expires_at: row.expires_at,
+      ttl_setting: row.ttl_setting,
+      allow_public_comments: row.allow_public_comments,
+      viewed_by: [],
+      comments: [],
+      audience: row.audience,
+      shared_with_user_id: row.shared_with_user_id || undefined,
+    };
+  };
 
-  // Sync the anchored beacon id to localStorage
+  // Fetch + realtime-subscribe to this chat's DB-backed anchored beacon.
+  // Keyed by an ORDERED user-id pair so both participants resolve to the same
+  // row regardless of who anchored it or which side's local conversation id
+  // they're viewing from — replaces the old localStorage-only approach, which
+  // only the creator's own browser could ever see.
   useEffect(() => {
-    try {
-      if (anchoredBeaconId) {
-        localStorage.setItem(
-          `anchored_beacon_${activeConv.id}`,
-          anchoredBeaconId,
-        );
+    const [userA, userB] = [currentUser.id, targetProfile.id].sort();
+    let cancelled = false;
+
+    const loadAnchor = async () => {
+      const { data } = await supabase
+        .from("beacon_anchors")
+        .select("beacon_id, beacon:beacons(*)")
+        .eq("user_a_id", userA)
+        .eq("user_b_id", userB)
+        .maybeSingle();
+      if (cancelled) return;
+      const row = (data as any)?.beacon;
+      if (row) {
+        const fetched = mapBeaconRow(row);
+        setBeacons((prev) => (prev.some((b) => b.id === fetched.id) ? prev : [...prev, fetched]));
+        setAnchoredBeaconId(fetched.id);
       } else {
-        localStorage.removeItem(`anchored_beacon_${activeConv.id}`);
+        setAnchoredBeaconId(null);
       }
-    } catch (e) {
-      console.warn("[ChatView] Failed to persist anchored beacon:", e);
-    }
-  }, [anchoredBeaconId, activeConv.id]);
+    };
+    void loadAnchor();
 
-  const handleCreateBeacon = (newBeacon: Beacon) => {
+    const channel = supabase
+      .channel(`beacon_anchor_${userA}_${userB}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "beacon_anchors", filter: `user_a_id=eq.${userA}` },
+        () => void loadAnchor(),
+      )
+      .subscribe();
+
+    return () => {
+      cancelled = true;
+      void supabase.removeChannel(channel);
+    };
+  }, [currentUser.id, targetProfile.id]);
+
+  const handleCreateBeacon = async (newBeacon: Beacon) => {
     setBeacons((prev) => [...prev, newBeacon]);
     // Anchor the newly created beacon to this conversation header
     setAnchoredBeaconId(newBeacon.id);
     showNotice("🌟 Beacon Cast into Harbor & Anchored to Header");
+
+    // Persist the anchor so the other person in this chat sees it too, on
+    // any device — not just this browser's localStorage.
+    const [userA, userB] = [currentUser.id, targetProfile.id].sort();
+    try {
+      const { error } = await supabase.from("beacon_anchors").upsert({
+        user_a_id: userA,
+        user_b_id: userB,
+        beacon_id: newBeacon.id,
+        anchored_by: currentUser.id,
+      });
+      if (error) console.warn("[ChatView] Failed to anchor beacon for chat partner:", error.message);
+    } catch (e) {
+      console.warn("[ChatView] Exception anchoring beacon for chat partner:", e);
+    }
   };
 
   const handleAddBeaconComment = (beaconId: string, comment: BeaconComment) => {
@@ -1335,10 +1398,21 @@ export const ChatView: React.FC<ChatViewProps> = ({
     );
   };
 
-  const handleDeleteBeacon = (beaconId: string) => {
+  const handleDeleteBeacon = async (beaconId: string) => {
     setBeacons((prev) => prev.filter((b) => b.id !== beaconId));
     if (anchoredBeaconId === beaconId) {
       setAnchoredBeaconId(null);
+      const [userA, userB] = [currentUser.id, targetProfile.id].sort();
+      try {
+        await supabase
+          .from("beacon_anchors")
+          .delete()
+          .eq("user_a_id", userA)
+          .eq("user_b_id", userB)
+          .eq("beacon_id", beaconId);
+      } catch (e) {
+        console.warn("[ChatView] Failed to clear beacon anchor:", e);
+      }
     }
     showNotice("Beacon Submerged & Deleted");
   };
@@ -1395,6 +1469,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         onClose={() => setIsBeaconModalOpen(false)}
         currentUser={currentUser}
         onCreateBeacon={handleCreateBeacon}
+        chatPartner={{ id: targetProfile.id, name: targetProfile.full_name || targetProfile.username }}
       />
 
       <BeaconViewer

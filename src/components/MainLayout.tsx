@@ -74,6 +74,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   onToggleTheme,
 }) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>("chats");
+  const [pendingReelId, setPendingReelId] = useState<string | null>(null);
   const [globalSearch, setGlobalSearch] = useState("");
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
@@ -445,7 +446,11 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             className="h-full"
           >
             {activeTab === "home" && (
-              <HomeTab currentUser={currentUser} isDark={isDark} />
+              <HomeTab
+                currentUser={currentUser}
+                isDark={isDark}
+                onOpenReel={(reelId) => { setPendingReelId(reelId); setActiveTab("reels"); }}
+              />
             )}
             {activeTab === "chats" && (
               <ChatsTab
@@ -458,7 +463,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
               <FeedTab currentUser={currentUser} isDark={isDark} />
             )}
             {activeTab === "reels" && (
-              <ReelsTab currentUser={currentUser} isDark={isDark} />
+              <ReelsTab
+                currentUser={currentUser}
+                isDark={isDark}
+                initialReelId={pendingReelId}
+                onInitialReelConsumed={() => setPendingReelId(null)}
+              />
             )}
             {activeTab === "profile" && (
               <ProfileTab

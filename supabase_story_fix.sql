@@ -368,6 +368,118 @@ CREATE POLICY "Story owners can view audience counts" ON public.story_views
     OR viewer_id = auth.uid()
   );
 
+-- Beacons (ephemeral "story" posts) — table never existed before, so every
+-- Beacon insert was silently failing and the anchored-to-chat feature only
+-- ever lived in localStorage, invisible to the other person in the chat.
+CREATE TABLE IF NOT EXISTS public.beacons (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  media_type TEXT NOT NULL DEFAULT 'text' CHECK (media_type IN ('image', 'video', 'audio', 'text')),
+  content_url TEXT,
+  text_content TEXT,
+  bg_gradient TEXT,
+  custom_hex TEXT,
+  font_family TEXT,
+  caption_font_family TEXT,
+  audio_visualizer TEXT,
+  is_one_time BOOLEAN NOT NULL DEFAULT false,
+  ttl_setting TEXT NOT NULL DEFAULT '24h',
+  allow_public_comments BOOLEAN NOT NULL DEFAULT true,
+  audience TEXT NOT NULL DEFAULT 'Everyone' CHECK (audience IN ('Everyone', 'Contacts Only', 'This Chat Only')),
+  shared_with_user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.beacons ADD COLUMN IF NOT EXISTS audience TEXT NOT NULL DEFAULT 'Everyone';
+ALTER TABLE public.beacons DROP CONSTRAINT IF EXISTS beacons_audience_check;
+ALTER TABLE public.beacons ADD CONSTRAINT beacons_audience_check CHECK (audience IN ('Everyone', 'Contacts Only', 'This Chat Only'));
+ALTER TABLE public.beacons ADD COLUMN IF NOT EXISTS shared_with_user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE;
+
+ALTER TABLE public.beacons ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Beacons visible to selected audience" ON public.beacons;
+CREATE POLICY "Beacons visible to selected audience" ON public.beacons
+  FOR SELECT TO authenticated USING (
+    auth.uid() = user_id
+    OR audience = 'Everyone'
+    OR (audience = 'This Chat Only' AND auth.uid() = shared_with_user_id)
+    OR (audience = 'Contacts Only' AND EXISTS (
+      SELECT 1 FROM public.follows
+      WHERE status = 'accepted'
+        AND ((follower_id = auth.uid() AND following_id = beacons.user_id)
+          OR (follower_id = beacons.user_id AND following_id = auth.uid()))
+    ))
+  );
+DROP POLICY IF EXISTS "Users can create their own beacons" ON public.beacons;
+CREATE POLICY "Users can create their own beacons" ON public.beacons
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own beacons" ON public.beacons;
+CREATE POLICY "Users can update own beacons" ON public.beacons
+  FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own beacons" ON public.beacons;
+CREATE POLICY "Users can delete own beacons" ON public.beacons
+  FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS public.beacon_views (
+  beacon_id UUID NOT NULL REFERENCES public.beacons(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  viewed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (beacon_id, user_id)
+);
+ALTER TABLE public.beacon_views ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can record beacon views" ON public.beacon_views;
+CREATE POLICY "Users can record beacon views" ON public.beacon_views
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update their own beacon views" ON public.beacon_views;
+CREATE POLICY "Users can update their own beacon views" ON public.beacon_views
+  FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Beacon owners and viewers can see views" ON public.beacon_views;
+CREATE POLICY "Beacon owners and viewers can see views" ON public.beacon_views
+  FOR SELECT TO authenticated USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM public.beacons WHERE beacons.id = beacon_views.beacon_id AND beacons.user_id = auth.uid())
+  );
+
+CREATE TABLE IF NOT EXISTS public.beacon_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  beacon_id UUID NOT NULL REFERENCES public.beacons(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  text TEXT NOT NULL DEFAULT '',
+  is_private_dm BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+ALTER TABLE public.beacon_comments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can view beacon comments" ON public.beacon_comments;
+CREATE POLICY "Authenticated users can view beacon comments" ON public.beacon_comments FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can comment on beacons" ON public.beacon_comments;
+CREATE POLICY "Users can comment on beacons" ON public.beacon_comments FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+
+-- Cross-device anchored beacon per 1:1 chat, keyed by an ORDERED user pair so
+-- both participants resolve to the same row regardless of who anchored it or
+-- which side's local conversation id they're viewing from.
+CREATE TABLE IF NOT EXISTS public.beacon_anchors (
+  user_a_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  user_b_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  beacon_id UUID NOT NULL REFERENCES public.beacons(id) ON DELETE CASCADE,
+  anchored_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (user_a_id, user_b_id),
+  CONSTRAINT beacon_anchors_ordered CHECK (user_a_id < user_b_id)
+);
+ALTER TABLE public.beacon_anchors ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Chat participants can view anchored beacon" ON public.beacon_anchors;
+CREATE POLICY "Chat participants can view anchored beacon" ON public.beacon_anchors
+  FOR SELECT TO authenticated USING (auth.uid() = user_a_id OR auth.uid() = user_b_id);
+DROP POLICY IF EXISTS "Chat participants can set anchored beacon" ON public.beacon_anchors;
+CREATE POLICY "Chat participants can set anchored beacon" ON public.beacon_anchors
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_a_id OR auth.uid() = user_b_id);
+DROP POLICY IF EXISTS "Chat participants can update anchored beacon" ON public.beacon_anchors;
+CREATE POLICY "Chat participants can update anchored beacon" ON public.beacon_anchors
+  FOR UPDATE TO authenticated USING (auth.uid() = user_a_id OR auth.uid() = user_b_id) WITH CHECK (auth.uid() = user_a_id OR auth.uid() = user_b_id);
+DROP POLICY IF EXISTS "Chat participants can clear anchored beacon" ON public.beacon_anchors;
+CREATE POLICY "Chat participants can clear anchored beacon" ON public.beacon_anchors
+  FOR DELETE TO authenticated USING (auth.uid() = user_a_id OR auth.uid() = user_b_id);
+
 -- ============================================================================
 -- REALTIME PUBLICATION CHANGES — run this block ALONE (select just this
 -- section and execute it separately from everything above). ALTER PUBLICATION
@@ -408,5 +520,13 @@ BEGIN
   IF to_regclass('public.story_reactions') IS NOT NULL
     AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'story_reactions') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.story_reactions;
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF to_regclass('public.beacon_anchors') IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'beacon_anchors') THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.beacon_anchors;
   END IF;
 END $$;

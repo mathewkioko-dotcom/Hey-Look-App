@@ -30,9 +30,12 @@ import { supabase } from "../../lib/supabase";
 interface ReelsTabProps {
   currentUser: Profile;
   isDark: boolean;
+  /** When set, jump to this reel once it's loaded (e.g. opened from Home). */
+  initialReelId?: string | null;
+  onInitialReelConsumed?: () => void;
 }
 
-export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
+export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark, initialReelId, onInitialReelConsumed }) => {
   const [reels, setReels] = useState<ReelItem[]>([]);
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
@@ -79,6 +82,14 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   useEffect(() => {
     loadReels();
   }, [currentUser.id]);
+
+  // Jump to the reel requested from Home, once the reels list has loaded.
+  useEffect(() => {
+    if (!initialReelId || !reels.length) return;
+    const index = reels.findIndex((reel) => reel.id === initialReelId);
+    if (index >= 0) setActiveReelIndex(index);
+    onInitialReelConsumed?.();
+  }, [initialReelId, reels]);
 
   const currentReel = reels[activeReelIndex];
 

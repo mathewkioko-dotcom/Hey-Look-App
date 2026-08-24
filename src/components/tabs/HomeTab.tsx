@@ -1,18 +1,21 @@
 import React, { useEffect, useState } from "react";
-import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus, Pause, Play } from "lucide-react";
-import { CallLog, FeedPost, Profile } from "../../types";
+import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus, Pause, Play, Radio, Film } from "lucide-react";
+import { CallLog, FeedPost, Profile, Beacon, BeaconComment, ReelItem } from "../../types";
 import { feedService, StoryItem } from "../../services/feedService";
 import { supabase } from "../../lib/supabase";
 import { fetchAllProfiles } from "../../services/chatService.profiles";
 import { fetchRecentCallLogs } from "../../services/chatService.calls";
 import { placeRealPhoneCall } from "../../services/phoneCallService";
+import { BeaconViewer } from "../BeaconViewer";
 
 interface HomeTabProps {
   currentUser: Profile;
   isDark: boolean;
+  /** Switches the app to the Reels tab focused on a specific reel. */
+  onOpenReel?: (reelId: string) => void;
 }
 
-export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
+export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenReel }) => {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [activeStory, setActiveStory] = useState<StoryItem | null>(null);
@@ -23,6 +26,10 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
   const [loading, setLoading] = useState(true);
   const [recentCalls, setRecentCalls] = useState<CallLog[]>([]);
   const [callNotice, setCallNotice] = useState("");
+  const [homeReels, setHomeReels] = useState<ReelItem[]>([]);
+  const [homeBeacons, setHomeBeacons] = useState<Beacon[]>([]);
+  const [isBeaconViewerOpen, setIsBeaconViewerOpen] = useState(false);
+  const [activeBeaconIndex, setActiveBeaconIndex] = useState(0);
   const [otherUsers, setOtherUsers] = useState<Profile[]>([]);
   const [newPostText, setNewPostText] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
@@ -38,13 +45,17 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
 
   const loadHome = async () => {
     setLoading(true);
-    const [homePosts, homeStories] = await Promise.all([
+    const [homePosts, homeStories, homeReelsData, homeBeaconsData] = await Promise.all([
       feedService.fetchPosts(currentUser.id),
       feedService.fetchStories(currentUser.id),
+      feedService.fetchReels(currentUser.id),
+      feedService.fetchActiveBeacons(currentUser.id),
     ]);
     const calls = await fetchRecentCallLogs(currentUser.id);
     setPosts(homePosts);
     setStories(homeStories);
+    setHomeReels(homeReelsData);
+    setHomeBeacons(homeBeaconsData);
     setRecentCalls(calls);
     const profiles = await fetchAllProfiles(currentUser.id);
     setOtherUsers(profiles.filter((profile) => profile.id !== currentUser.id).slice(0, 24));
@@ -128,6 +139,19 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
     setTimeout(() => setCallNotice(""), 3000);
   };
 
+  const handleAddBeaconComment = (beaconId: string, comment: BeaconComment) => {
+    const beacon = homeBeacons.find((b) => b.id === beaconId);
+    if (beacon) void feedService.addBeaconComment(beacon, currentUser.id, comment.text, Boolean(comment.is_private_dm));
+    setHomeBeacons((prev) =>
+      prev.map((b) => (b.id === beaconId ? { ...b, comments: [...(b.comments || []), comment] } : b)),
+    );
+  };
+
+  const handleDeleteBeacon = async (beaconId: string) => {
+    setHomeBeacons((prev) => prev.filter((b) => b.id !== beaconId));
+    await supabase.from("beacons").delete().eq("id", beaconId).eq("user_id", currentUser.id);
+  };
+
   return (
     <div className="mx-auto max-w-2xl space-y-5 pb-12">
       {callNotice && (
@@ -154,7 +178,49 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
           </button>;
         })}
       </section>
+      {homeBeacons.length > 0 && (
+        <section className="flex gap-3 overflow-x-auto px-1 pb-1 scrollbar-none">
+          {homeBeacons.map((beacon, index) => (
+            <button
+              key={beacon.id}
+              onClick={() => { setActiveBeaconIndex(index); setIsBeaconViewerOpen(true); }}
+              className="flex w-20 shrink-0 flex-col items-center gap-1 text-center"
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-pink-500 via-rose-500 to-cyan-400 p-[2px]">
+                <span className="flex h-full w-full items-center justify-center overflow-hidden rounded-full bg-slate-900">
+                  {beacon.media_type === "text" || !beacon.content_url ? (
+                    <Radio className="h-5 w-5 animate-pulse text-pink-400" />
+                  ) : (
+                    <img src={beacon.content_url} alt={beacon.author.name} className="h-full w-full object-cover" />
+                  )}
+                </span>
+              </span>
+              <span className="w-full truncate text-[10px] text-slate-300">{beacon.author.name}</span>
+            </button>
+          ))}
+        </section>
+      )}
 
+      {homeReels.length > 0 && (
+        <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+          <div className="mb-3 flex items-center gap-2"><Film className="h-4 w-4 text-pink-400" /><h3 className="text-sm font-bold text-slate-100">Reels</h3></div>
+          <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
+            {homeReels.slice(0, 12).map((reel) => (
+              <button
+                key={reel.id}
+                onClick={() => onOpenReel?.(reel.id)}
+                className="relative h-40 w-24 shrink-0 overflow-hidden rounded-2xl bg-slate-950"
+              >
+                <video src={reel.video_url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/20">
+                  <Play className="h-6 w-6 text-white" fill="currentColor" />
+                </span>
+                <span className="absolute bottom-1 left-1 right-1 truncate text-[9px] font-bold text-white drop-shadow">{reel.caption || reel.author.name}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
         <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-bold text-slate-100">Calls</h3><span className="text-[10px] text-slate-500">Recent log</span></div>
         <div className="space-y-2">{recentCalls.length === 0 ? <p className="text-xs text-slate-500">No calls recorded yet.</p> : recentCalls.map((call) => { const incoming = call.receiver_id === currentUser.id; const name = incoming ? call.caller_name : "You"; return <div key={call.id} className="flex items-center gap-3 rounded-xl bg-slate-950 p-3"><img src={call.caller_avatar} alt={name} className="h-9 w-9 rounded-full object-cover" /><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-200">{name} <span className={call.status === "missed" ? "text-rose-400" : "text-emerald-400"}>{call.status === "missed" ? "Missed" : "Connected"}</span></p><p className="text-[10px] text-slate-500">{call.call_type === "video" ? "Video" : "Voice"} • {new Date(call.created_at).toLocaleString()} {call.duration ? `• ${call.duration}` : ""}</p></div><button onClick={() => void callBack(call)} className="rounded-xl bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950">Call</button></div>; })}</div>
@@ -193,6 +259,16 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
       {activeStory && viewedStory && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" onClick={() => setActiveStory(null)}><div className="relative h-[75vh] w-full max-w-sm overflow-hidden rounded-3xl bg-slate-950" onClick={(event) => event.stopPropagation()}><button onClick={() => setActiveStory(null)} className="absolute right-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white"><X className="h-5 w-5" /></button><button onClick={() => moveStory(-1)} className="absolute left-2 top-1/2 z-10 rounded-full bg-black/50 p-3 text-white">‹</button><button onClick={() => moveStory(1)} className="absolute right-2 top-1/2 z-10 rounded-full bg-black/50 p-3 text-white">›</button>{viewedStory.media_url?.startsWith('data:video') || viewedStory.media_url?.match(/\.(mp4|webm|mov)(\?|$)/i) ? <video src={viewedStory.media_url} autoPlay={!storyPaused} controls playsInline className="h-full w-full object-cover" /> : <img src={viewedStory.media_url || viewedStory.user_avatar} alt={viewedStory.user_name} className="h-full w-full object-cover" />}<button onClick={() => setStoryPaused((paused) => !paused)} className="absolute bottom-36 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/60 p-3 text-white" aria-label={storyPaused ? 'Play story' : 'Pause story'}>{storyPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}</button><div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 p-4 pt-16"><div className="flex items-center gap-2"><button onClick={() => { const next = !storyLiked[viewedStory.id]; setStoryLiked((items) => ({ ...items, [viewedStory.id]: next })); void feedService.setStoryReaction(viewedStory.id, currentUser.id, next ? '❤️' : null); }} className="rounded-xl bg-black/50 px-3 py-2 text-xs font-bold">{storyLiked[viewedStory.id] ? 'Liked ❤️' : 'Like 🤍'}</button>{['👍', '😂', '🔥'].map((emoji) => <button key={emoji} onClick={() => void feedService.setStoryReaction(viewedStory.id, currentUser.id, emoji)} className="rounded-xl bg-black/50 px-2 py-2 text-sm">{emoji}</button>)}</div><div className="mt-2 flex gap-2"><input value={storyReply} onChange={(event) => setStoryReply(event.target.value)} placeholder="Reply to story..." className="min-w-0 flex-1 rounded-xl bg-black/50 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => { if (!storyReply.trim()) return; void feedService.sendStoryReply(viewedStory.id, currentUser.id, storyReply.trim()).then((sent) => { if (sent) setStoryReply(''); }); }} className="rounded-xl bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950">Reply</button></div><p className="mt-2 text-sm font-bold text-white">{viewedStory.user_name}</p><p className="text-[10px] text-slate-300">{new Date(viewedStory.created_at).toLocaleString()}</p></div></div></div>}
       {showStoryComposer && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowStoryComposer(false)}><div className="w-full max-w-sm space-y-4 rounded-3xl bg-slate-900 p-5" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h3 className="font-bold text-white">Add Story</h3><button onClick={() => setShowStoryComposer(false)} className="text-slate-400"><X className="h-5 w-5" /></button></div><input type="file" accept="image/*,video/*" onChange={(event) => { const file = event.target.files?.[0]; if (!file || file.size > 50 * 1024 * 1024) return; setStoryFile(file); const reader = new FileReader(); reader.onload = () => setStoryUrl(String(reader.result || '')); reader.readAsDataURL(file); }} className="w-full text-xs text-white" /><input value={storyUrl.startsWith('data:') ? '' : storyUrl} onChange={(event) => setStoryUrl(event.target.value)} placeholder="Or paste story media URL..." className="w-full rounded-xl bg-slate-950 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => { if (!storyUrl.trim() || isPublishing) return; setIsPublishing(true); void feedService.createStory(currentUser.id, storyUrl.trim()).then((success) => { if (success) { setStoryUrl(''); setStoryFile(null); setShowStoryComposer(false); void loadHome(); } setIsPublishing(false); }); }} disabled={!storyUrl.trim() || isPublishing} className="w-full rounded-xl bg-cyan-500 py-3 text-xs font-bold text-slate-950 disabled:opacity-40">{isPublishing ? "Publishing..." : "Publish Story"}</button></div></div>}
       {profileToView && <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 p-4" onClick={() => setProfileToView(null)}><div className="w-full max-w-sm rounded-3xl bg-slate-900 p-6 text-center" onClick={(event) => event.stopPropagation()}><img src={profileToView.avatar_url} alt={profileToView.full_name} className="mx-auto h-20 w-20 rounded-full object-cover" /><h3 className="mt-3 font-bold text-white">{profileToView.full_name}</h3><p className="text-xs text-slate-400">@{profileToView.username}</p><button onClick={() => setProfileToView(null)} className="mt-4 rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950">Close Profile</button></div></div>}
+
+      <BeaconViewer
+        beacons={homeBeacons}
+        initialIndex={activeBeaconIndex}
+        isOpen={isBeaconViewerOpen}
+        onClose={() => setIsBeaconViewerOpen(false)}
+        currentUser={currentUser}
+        onAddComment={handleAddBeaconComment}
+        onDeleteBeacon={(beaconId) => void handleDeleteBeacon(beaconId)}
+      />
     </div>
   );
 };

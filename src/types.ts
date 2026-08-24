@@ -233,6 +233,10 @@ export interface Beacon {
   allow_public_comments: boolean;
   viewed_by?: string[];
   comments?: BeaconComment[];
+  /** Who can see this Beacon: everyone, accepted fleet members, or one specific chat partner. */
+  audience?: "Everyone" | "Contacts Only" | "This Chat Only";
+  /** Set when audience is "This Chat Only" — the one other user allowed to see it. */
+  shared_with_user_id?: string;
 }
 
 export type OAuthProvider =
