@@ -5,7 +5,7 @@ import { MainLayout } from "./components/MainLayout";
 import { Profile } from "./types";
 import { supabase } from "./lib/supabase";
 import { CallProvider } from "./context/CallContext";
-import { ensureProfile } from "./services/chatService.profiles";
+import { ensureProfile, fetchProfileById } from "./services/chatService.profiles";
 
 type AppStep = "splash" | "auth" | "main";
 
@@ -92,6 +92,15 @@ export default function App() {
         void ensureProfile(profile);
         setCurrentUser(profile);
         setStep("main");
+        // Auth metadata never carries fields that only live in the `profiles`
+        // table (phone_number, bio, custom stats, etc.) — without this merge,
+        // every auth state change (tab refocus, token refresh) would silently
+        // wipe those back to the hardcoded defaults above.
+        void fetchProfileById(u.id).then((dbProfile) => {
+          if (dbProfile) {
+            setCurrentUser((prev) => (prev ? { ...prev, ...dbProfile } : dbProfile));
+          }
+        });
       } else if (event === "SIGNED_OUT") {
         setCurrentUser(null);
         setStep("auth");
@@ -105,8 +114,9 @@ export default function App() {
 
   const handleSplashFinish = (sessionExists: boolean, userSession?: any) => {
     if (sessionExists && userSession) {
+      const userId = userSession.id;
       setCurrentUser({
-        id: userSession.id,
+        id: userId,
         username:
           userSession.user_metadata?.username ||
           userSession.email?.split("@")[0] ||
@@ -119,7 +129,7 @@ export default function App() {
         avatar_url:
           userSession.user_metadata?.avatar_url ||
           userSession.user_metadata?.picture ||
-          `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userSession.id)}`,
+          `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(userId)}`,
         email: userSession.email,
         is_online: true,
         last_seen: new Date().toISOString(),
@@ -129,6 +139,13 @@ export default function App() {
         posts_count: 24,
       });
       setStep("main");
+      // Merge in persisted profile fields (phone_number, bio, etc.) that only
+      // live in the `profiles` table, same reasoning as onAuthStateChange above.
+      void fetchProfileById(userId).then((dbProfile) => {
+        if (dbProfile) {
+          setCurrentUser((prev) => (prev ? { ...prev, ...dbProfile } : dbProfile));
+        }
+      });
     } else {
       setCurrentUser(null);
       setStep("auth");
@@ -139,6 +156,11 @@ export default function App() {
     void ensureProfile(profile);
     setCurrentUser(profile);
     setStep("main");
+    void fetchProfileById(profile.id).then((dbProfile) => {
+      if (dbProfile) {
+        setCurrentUser((prev) => (prev ? { ...prev, ...dbProfile } : dbProfile));
+      }
+    });
   };
 
   const handleLogout = async () => {
