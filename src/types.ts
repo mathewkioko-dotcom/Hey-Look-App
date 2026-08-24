@@ -29,6 +29,58 @@ export interface Profile {
   phone_number?: string;
 }
 
+/** A multi-member group chat or a broadcast-only channel. */
+export interface ChatRoom {
+  id: string;
+  type: "group" | "channel";
+  name: string;
+  avatar_url?: string;
+  description?: string;
+  created_by: string;
+  created_at: string;
+  member_count?: number;
+  /** The current user's role in this room, when known. */
+  my_role?: "admin" | "member";
+  rules?: string;
+  enforce_rules?: boolean;
+  allow_edit_info?: boolean;
+  allow_send?: boolean;
+  allow_add_members?: boolean;
+  allow_pin?: boolean;
+  announcement_mode?: boolean;
+  max_upload_mb?: number;
+  auto_delete_media?: "Never" | "After 30 days" | "After 90 days" | "After 1 year";
+  invite_code?: string;
+}
+
+export interface RoomJoinRequest {
+  id: string;
+  room_id: string;
+  user_id: string;
+  status: "pending" | "approved" | "rejected";
+  requested_at: string;
+  profile?: Profile;
+}
+
+export interface RoomEvent {
+  id: string;
+  room_id: string;
+  created_by: string;
+  title: string;
+  event_date?: string;
+  created_at: string;
+  going_count?: number;
+  my_rsvp?: "going" | "not_going";
+}
+
+export interface RoomMember {
+  room_id: string;
+  user_id: string;
+  role: "admin" | "member";
+  joined_at: string;
+  profile?: Profile;
+}
+
 /**
  * Nautical Delivery Status integer values:
  * 0 = Stranded (Failed / Hazard)

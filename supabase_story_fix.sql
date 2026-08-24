@@ -368,6 +368,238 @@ CREATE POLICY "Story owners can view audience counts" ON public.story_views
     OR viewer_id = auth.uid()
   );
 
+-- Group chats & channels (WhatsApp/Telegram-style). Group creation was
+-- previously 100% fake UI (GroupManagementModal used local sample arrays,
+-- nothing ever persisted) — these tables make it real.
+CREATE TABLE IF NOT EXISTS public.chat_rooms (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type TEXT NOT NULL DEFAULT 'group' CHECK (type IN ('group', 'channel')),
+  name TEXT NOT NULL,
+  avatar_url TEXT,
+  description TEXT,
+  created_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.room_members (
+  room_id UUID NOT NULL REFERENCES public.chat_rooms(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  role TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('admin', 'member')),
+  joined_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (room_id, user_id)
+);
+
+ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Members can view their rooms" ON public.chat_rooms;
+CREATE POLICY "Members can view their rooms" ON public.chat_rooms
+  FOR SELECT TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid())
+  );
+DROP POLICY IF EXISTS "Users can create rooms" ON public.chat_rooms;
+CREATE POLICY "Users can create rooms" ON public.chat_rooms
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = created_by);
+DROP POLICY IF EXISTS "Admins can update rooms" ON public.chat_rooms;
+CREATE POLICY "Admins can update rooms" ON public.chat_rooms
+  FOR UPDATE TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  ) WITH CHECK (
+    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  );
+DROP POLICY IF EXISTS "Admins can delete rooms" ON public.chat_rooms;
+CREATE POLICY "Admins can delete rooms" ON public.chat_rooms
+  FOR DELETE TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  );
+
+ALTER TABLE public.room_members ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Members can view room membership" ON public.room_members;
+CREATE POLICY "Members can view room membership" ON public.room_members
+  FOR SELECT TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid())
+  );
+-- (INSERT policy for room_members is defined further below, once the
+-- allow_add_members column exists on chat_rooms, so it can factor that in.)
+DROP POLICY IF EXISTS "Admins can update member roles" ON public.room_members;
+CREATE POLICY "Admins can update member roles" ON public.room_members
+  FOR UPDATE TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+  ) WITH CHECK (
+    EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+  );
+DROP POLICY IF EXISTS "Members can leave or admins can remove" ON public.room_members;
+CREATE POLICY "Members can leave or admins can remove" ON public.room_members
+  FOR DELETE TO authenticated USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+  );
+
+-- Group/channel messages reuse the existing `messages` table (room_id set,
+-- receiver_id NULL) instead of a parallel table, so existing 1:1 DM rows and
+-- policies are completely untouched — these changes only ADD visibility/
+-- insert rights for room members, they never narrow the existing DM rules.
+ALTER TABLE public.messages ALTER COLUMN receiver_id DROP NOT NULL;
+
+-- Real group/channel settings that GroupManagementModal used to fake with
+-- local-only sample state: permissions, announcement mode, rules, invite
+-- link, media policy.
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS rules TEXT;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS enforce_rules BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS allow_edit_info BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS allow_send BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS allow_add_members BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS allow_pin BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS announcement_mode BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS max_upload_mb INTEGER NOT NULL DEFAULT 100;
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS auto_delete_media TEXT NOT NULL DEFAULT 'Never';
+ALTER TABLE public.chat_rooms DROP CONSTRAINT IF EXISTS chat_rooms_auto_delete_check;
+ALTER TABLE public.chat_rooms ADD CONSTRAINT chat_rooms_auto_delete_check CHECK (auto_delete_media IN ('Never', 'After 30 days', 'After 90 days', 'After 1 year'));
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS invite_code TEXT UNIQUE;
+
+ALTER TABLE public.room_members ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false;
+
+-- Pending join requests (used by "Pending Approvals" + invite-link joining).
+CREATE TABLE IF NOT EXISTS public.room_join_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES public.chat_rooms(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  requested_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE (room_id, user_id)
+);
+ALTER TABLE public.room_join_requests ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admins and requester can view join requests" ON public.room_join_requests;
+CREATE POLICY "Admins and requester can view join requests" ON public.room_join_requests
+  FOR SELECT TO authenticated USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_join_requests.room_id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  );
+DROP POLICY IF EXISTS "Users can request to join" ON public.room_join_requests;
+CREATE POLICY "Users can request to join" ON public.room_join_requests
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Admins can decide join requests" ON public.room_join_requests;
+CREATE POLICY "Admins can decide join requests" ON public.room_join_requests
+  FOR UPDATE TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_join_requests.room_id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  ) WITH CHECK (
+    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_join_requests.room_id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  );
+DROP POLICY IF EXISTS "Requester or admin can delete a join request" ON public.room_join_requests;
+CREATE POLICY "Requester or admin can delete a join request" ON public.room_join_requests
+  FOR DELETE TO authenticated USING (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_join_requests.room_id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  );
+
+-- Group event planner.
+CREATE TABLE IF NOT EXISTS public.room_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID NOT NULL REFERENCES public.chat_rooms(id) ON DELETE CASCADE,
+  created_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  event_date TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+ALTER TABLE public.room_events ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Members can view room events" ON public.room_events;
+CREATE POLICY "Members can view room events" ON public.room_events
+  FOR SELECT TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_events.room_id AND room_members.user_id = auth.uid())
+  );
+DROP POLICY IF EXISTS "Members can create room events" ON public.room_events;
+CREATE POLICY "Members can create room events" ON public.room_events
+  FOR INSERT TO authenticated WITH CHECK (
+    auth.uid() = created_by
+    AND EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_events.room_id AND room_members.user_id = auth.uid())
+  );
+DROP POLICY IF EXISTS "Creators and admins can update room events" ON public.room_events;
+CREATE POLICY "Creators and admins can update room events" ON public.room_events
+  FOR UPDATE TO authenticated USING (
+    auth.uid() = created_by
+    OR EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_events.room_id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  ) WITH CHECK (
+    auth.uid() = created_by
+    OR EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_events.room_id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  );
+DROP POLICY IF EXISTS "Creators and admins can delete room events" ON public.room_events;
+CREATE POLICY "Creators and admins can delete room events" ON public.room_events
+  FOR DELETE TO authenticated USING (
+    auth.uid() = created_by
+    OR EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = room_events.room_id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+  );
+
+CREATE TABLE IF NOT EXISTS public.room_event_rsvps (
+  event_id UUID NOT NULL REFERENCES public.room_events(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'going' CHECK (status IN ('going', 'not_going')),
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (event_id, user_id)
+);
+ALTER TABLE public.room_event_rsvps ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Members can view RSVPs" ON public.room_event_rsvps;
+CREATE POLICY "Members can view RSVPs" ON public.room_event_rsvps
+  FOR SELECT TO authenticated USING (
+    EXISTS (
+      SELECT 1 FROM public.room_events
+      JOIN public.room_members ON room_members.room_id = room_events.room_id
+      WHERE room_events.id = room_event_rsvps.event_id AND room_members.user_id = auth.uid()
+    )
+  );
+DROP POLICY IF EXISTS "Users can RSVP for themselves" ON public.room_event_rsvps;
+CREATE POLICY "Users can RSVP for themselves" ON public.room_event_rsvps
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can change their own RSVP" ON public.room_event_rsvps;
+CREATE POLICY "Users can change their own RSVP" ON public.room_event_rsvps
+  FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+DROP POLICY IF EXISTS "Users can read their messages" ON public.messages;
+CREATE POLICY "Users can read their messages" ON public.messages
+  FOR SELECT TO authenticated
+  USING (
+    auth.uid() = sender_id
+    OR auth.uid() = receiver_id
+    OR (room_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM public.room_members WHERE room_members.room_id = messages.room_id AND room_members.user_id = auth.uid()
+    ))
+  );
+
+-- Enforces Channels (admin-only posting), Announcement Mode (admin-only
+-- posting in an otherwise normal group), and the "Send Messages" permission
+-- toggle — all server-side via RLS, not just hidden in the UI.
+DROP POLICY IF EXISTS "Users can send messages" ON public.messages;
+CREATE POLICY "Users can send messages" ON public.messages
+  FOR INSERT TO authenticated
+  WITH CHECK (
+    auth.uid() = sender_id
+    AND (
+      NOT EXISTS (SELECT 1 FROM public.chat_rooms WHERE chat_rooms.id = messages.room_id)
+      OR EXISTS (
+        SELECT 1 FROM public.room_members, public.chat_rooms
+        WHERE room_members.room_id = messages.room_id
+          AND chat_rooms.id = messages.room_id
+          AND room_members.user_id = auth.uid()
+          AND (
+            room_members.role = 'admin'
+            OR (chat_rooms.type <> 'channel' AND NOT chat_rooms.announcement_mode AND chat_rooms.allow_send)
+          )
+      )
+    )
+  );
+
+-- Members can only add other members when the room allows it (or they're an
+-- admin/the creator, who can always add regardless of the toggle).
+DROP POLICY IF EXISTS "Creators and admins can add members" ON public.room_members;
+CREATE POLICY "Creators and admins can add members" ON public.room_members
+  FOR INSERT TO authenticated WITH CHECK (
+    auth.uid() = user_id
+    OR EXISTS (SELECT 1 FROM public.chat_rooms WHERE chat_rooms.id = room_members.room_id AND chat_rooms.created_by = auth.uid())
+    OR EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+    OR EXISTS (
+      SELECT 1 FROM public.room_members rm2, public.chat_rooms
+      WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid()
+        AND chat_rooms.id = room_members.room_id AND chat_rooms.allow_add_members
+    )
+  );
+
 -- Beacons (ephemeral "story" posts) — table never existed before, so every
 -- Beacon insert was silently failing and the anchored-to-chat feature only
 -- ever lived in localStorage, invisible to the other person in the chat.

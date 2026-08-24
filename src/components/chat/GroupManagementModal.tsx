@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   X,
@@ -38,6 +38,27 @@ import {
   Search,
   Eye,
 } from "lucide-react";
+import { Profile, RoomMember, RoomJoinRequest, RoomEvent } from "../../types";
+import {
+  fetchRoomMembers,
+  fetchRoomById,
+  setMemberRole,
+  removeMember,
+  updateRoom,
+  updateRoomSettings,
+  leaveRoom,
+  deleteRoom,
+  fetchPendingJoinRequests,
+  decideJoinRequest,
+  generateInviteCode,
+  fetchRoomEvents,
+  createRoomEvent,
+  updateRoomEvent,
+  rsvpToEvent,
+  setRoomArchived,
+  verifyPasswordAndTransferOwnership,
+  fetchRoomMediaStats,
+} from "../../services/groupChatService";
 
 type GroupView =
   | "hub"
@@ -58,6 +79,11 @@ interface GroupManagementModalProps {
   groupName: string;
   isAdmin: boolean;
   onNotice?: (msg: string) => void;
+  /** Real room id — when provided, Participants/Description/Exit &Delete act
+   * on the actual `chat_rooms`/`room_members` tables instead of sample data. */
+  roomId?: string;
+  currentUser?: Profile;
+  onLeftOrDeleted?: () => void;
 }
 
 /* ------------------------- Sample Data ------------------------- */
@@ -95,9 +121,36 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
   groupName,
   isAdmin,
   onNotice,
+  roomId,
+  currentUser,
+  onLeftOrDeleted,
 }) => {
   const [view, setView] = useState<GroupView>("hub");
   const [toast, setToast] = useState<string>("");
+
+  // When a real roomId is supplied, participants are loaded from the DB and
+  // replace the sample PARTICIPANTS array used when this modal is opened
+  // without a room context (kept for backward compatibility elsewhere).
+  const [realMembers, setRealMembers] = useState<RoomMember[] | null>(null);
+  const [realRoom, setRealRoom] = useState<import("../../types").ChatRoom | null>(null);
+  const [realJoinRequests, setRealJoinRequests] = useState<RoomJoinRequest[] | null>(null);
+  const [realEvents, setRealEvents] = useState<RoomEvent[] | null>(null);
+  const [mediaStats, setMediaStats] = useState({ images: 0, videos: 0, voice: 0, total: 0 });
+
+  const refreshRoomData = () => {
+    if (!roomId || !currentUser) return;
+    void fetchRoomMembers(roomId).then(setRealMembers);
+    void fetchRoomById(roomId, currentUser.id).then(setRealRoom);
+    void fetchPendingJoinRequests(roomId).then(setRealJoinRequests);
+    void fetchRoomEvents(roomId, currentUser.id).then(setRealEvents);
+    void fetchRoomMediaStats(roomId).then(setMediaStats);
+  };
+
+  useEffect(() => {
+    if (!isOpen || !roomId || !currentUser) return;
+    refreshRoomData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, roomId]);
 
   // Group Permissions
   const [permEditInfo, setPermEditInfo] = useState(true);
@@ -110,14 +163,44 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
   const [approvalSub, setApprovalSub] = useState<"list" | "review">("list");
   const [reviewTarget, setReviewTarget] = useState<any>(null);
 
+  useEffect(() => {
+    if (!realJoinRequests) return;
+    setPending(
+      realJoinRequests.map((r) => ({
+        id: r.id,
+        name: r.profile?.full_name || "Someone",
+        handle: `@${r.profile?.username || "user"}`,
+        avatar: r.profile?.avatar_url || "",
+        requested: new Date(r.requested_at).toLocaleString(),
+        reason: "Requested via invite link",
+        userId: r.user_id,
+      })),
+    );
+  }, [realJoinRequests]);
+
   // Invite Link
   const [inviteLink, setInviteLink] = useState(
     "https://heylook.app/join/Harbor-Crew-7xk2",
   );
 
-  // Participants
+  // Participants — mapped from real DB membership when a roomId is provided,
+  // otherwise falls back to the local sample data (legacy call sites without
+  // a room context).
   const [participants, setParticipants] = useState(PARTICIPANTS);
   const [activeParticipant, setActiveParticipant] = useState<any>(null);
+
+  useEffect(() => {
+    if (!realMembers) return;
+    setParticipants(
+      realMembers.map((m) => ({
+        id: m.user_id,
+        name: m.profile?.full_name || "Member",
+        handle: `@${m.profile?.username || "member"}`,
+        avatar: m.profile?.avatar_url || "",
+        role: m.role === "admin" ? "Admin" : "Member",
+      })),
+    );
+  }, [realMembers]);
 
   // Event Planner
   const [eventSub, setEventSub] = useState<"list" | "create" | "edit" | "rsvps">("list");
@@ -125,6 +208,19 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
   const [activeEvent, setActiveEvent] = useState<any>(null);
   const [newEventTitle, setNewEventTitle] = useState("");
   const [newEventDate, setNewEventDate] = useState("");
+
+  useEffect(() => {
+    if (!realEvents) return;
+    setEvents(
+      realEvents.map((e) => ({
+        id: e.id,
+        title: e.title,
+        date: e.event_date || "TBD",
+        rsvps: e.going_count || 0,
+        attendees: e.going_count || 0,
+      })),
+    );
+  }, [realEvents]);
 
   // Announcement Mode
   const [announcementMode, setAnnouncementMode] = useState(false);
@@ -142,6 +238,21 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
   // Shared Media & File Limits
   const [maxUploadSize, setMaxUploadSize] = useState("100 MB");
   const [autoDeleteMedia, setAutoDeleteMedia] = useState("Never");
+
+  useEffect(() => {
+    if (!realRoom) return;
+    setPermEditInfo(realRoom.allow_edit_info ?? true);
+    setPermSend(realRoom.allow_send ?? true);
+    setPermAddMembers(realRoom.allow_add_members ?? true);
+    setPermPin(realRoom.allow_pin ?? true);
+    setAnnouncementMode(Boolean(realRoom.announcement_mode));
+    setGroupDescription(realRoom.description || "");
+    setGroupRules(realRoom.rules || "");
+    setEnforceRules(Boolean(realRoom.enforce_rules));
+    setMaxUploadSize(`${realRoom.max_upload_mb ?? 100} MB`);
+    setAutoDeleteMedia(realRoom.auto_delete_media || "Never");
+    if (realRoom.invite_code) setInviteLink(`https://heylook.app/join/${realRoom.invite_code}`);
+  }, [realRoom]);
 
   // Transfer Ownership
   const [transferSub, setTransferSub] = useState<"list" | "select" | "verify">("list");
@@ -220,7 +331,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
         </div>
       ))}
       <button
-        onClick={() => showToast("Permissions saved")}
+        onClick={() => { if (roomId) void updateRoomSettings(roomId, { allow_edit_info: permEditInfo, allow_send: permSend, allow_add_members: permAddMembers, allow_pin: permPin }); showToast("Permissions saved"); }}
         className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer"
       >
         Save Permissions
@@ -249,6 +360,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
           <div className="flex gap-2">
             <button
               onClick={() => {
+                if (roomId && reviewTarget.userId) void decideJoinRequest(reviewTarget.id, roomId, reviewTarget.userId, true).then(refreshRoomData);
                 setPending(pending.filter((p) => p.id !== reviewTarget.id));
                 setApprovalSub("list");
                 showToast(`${reviewTarget.name} approved`);
@@ -259,6 +371,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
             </button>
             <button
               onClick={() => {
+                if (roomId && reviewTarget.userId) void decideJoinRequest(reviewTarget.id, roomId, reviewTarget.userId, false).then(refreshRoomData);
                 setPending(pending.filter((p) => p.id !== reviewTarget.id));
                 setApprovalSub("list");
                 showToast(`${reviewTarget.name} rejected`);
@@ -283,13 +396,13 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
         />
         <div className="flex gap-2">
           <button
-            onClick={() => { setPending([]); showToast("All requests approved"); }}
+            onClick={() => { if (roomId) { pending.forEach((p: any) => p.userId && void decideJoinRequest(p.id, roomId, p.userId, true)); refreshRoomData(); } setPending([]); showToast("All requests approved"); }}
             className="flex-1 py-2.5 rounded-xl bg-emerald-500 text-slate-950 text-xs font-extrabold hover:bg-emerald-400 flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <CheckCheck className="w-4 h-4" /> Approve All
           </button>
           <button
-            onClick={() => { setPending([]); showToast("All requests rejected"); }}
+            onClick={() => { if (roomId) { pending.forEach((p: any) => p.userId && void decideJoinRequest(p.id, roomId, p.userId, false)); refreshRoomData(); } setPending([]); showToast("All requests rejected"); }}
             className="flex-1 py-2.5 rounded-xl bg-rose-500 text-white text-xs font-extrabold hover:bg-rose-400 flex items-center justify-center gap-1.5 cursor-pointer"
           >
             <XCircle className="w-4 h-4" /> Reject All
@@ -347,7 +460,16 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
       </div>
       <div className="space-y-2">
         <button
-          onClick={() => { setInviteLink(`https://heylook.app/join/${groupName.replace(/\s+/g, "-")}-${Math.random().toString(36).slice(2, 6)}`); showToast("Invite link reset"); }}
+          onClick={() => {
+            if (roomId) {
+              void generateInviteCode(roomId).then((code) => {
+                if (code) setInviteLink(`https://heylook.app/join/${code}`);
+              });
+            } else {
+              setInviteLink(`https://heylook.app/join/${groupName.replace(/\s+/g, "-")}-${crypto.randomUUID().slice(0, 6)}`);
+            }
+            showToast("Invite link reset");
+          }}
           className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-indigo-500/40 cursor-pointer"
         >
           <RotateCcw className="w-4 h-4 text-amber-400" />
@@ -398,7 +520,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
           <div className="space-y-2">
             {!isAdminUser && (
               <button
-                onClick={() => { setParticipants(participants.map((m) => m.id === activeParticipant.id ? { ...m, role: "Admin" } : m)); setActiveParticipant(null); showToast(`${activeParticipant.name} is now an admin`); }}
+                onClick={() => { if (roomId) void setMemberRole(roomId, activeParticipant.id, "admin"); setParticipants(participants.map((m) => m.id === activeParticipant.id ? { ...m, role: "Admin" } : m)); setActiveParticipant(null); showToast(`${activeParticipant.name} is now an admin`); }}
                 className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-amber-500/40 cursor-pointer"
               >
                 <Crown className="w-4 h-4 text-amber-400" />
@@ -410,7 +532,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
             )}
             {isAdminUser && (
               <button
-                onClick={() => { setParticipants(participants.map((m) => m.id === activeParticipant.id ? { ...m, role: "Member" } : m)); setActiveParticipant(null); showToast(`${activeParticipant.name} dismissed as admin`); }}
+                onClick={() => { if (roomId) void setMemberRole(roomId, activeParticipant.id, "member"); setParticipants(participants.map((m) => m.id === activeParticipant.id ? { ...m, role: "Member" } : m)); setActiveParticipant(null); showToast(`${activeParticipant.name} dismissed as admin`); }}
                 className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-rose-500/40 cursor-pointer"
               >
                 <UserMinus className="w-4 h-4 text-rose-400" />
@@ -421,7 +543,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
               </button>
             )}
             <button
-              onClick={() => { setParticipants(participants.filter((m) => m.id !== activeParticipant.id)); setActiveParticipant(null); showToast(`${activeParticipant.name} removed from group`); }}
+              onClick={() => { if (roomId) void removeMember(roomId, activeParticipant.id); setParticipants(participants.filter((m) => m.id !== activeParticipant.id)); setActiveParticipant(null); showToast(`${activeParticipant.name} removed from group`); }}
               className="w-full flex items-center gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/40 hover:bg-rose-500/20 cursor-pointer"
             >
               <UserMinus className="w-4 h-4 text-rose-400" />
@@ -496,7 +618,15 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
               <input type="text" value={newEventDate} onChange={(e) => setNewEventDate(e.target.value)} placeholder="e.g. Mon • 5:00 PM" className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-200 focus:border-orange-500 focus:outline-none" />
             </div>
             <button
-              onClick={() => { if (newEventTitle) { setEvents([...events, { id: `e${Date.now()}`, title: newEventTitle, date: newEventDate || "TBD", rsvps: 0, attendees: 0 }]); setNewEventTitle(""); setNewEventDate(""); setEventSub("list"); showToast("Event created"); } }}
+              onClick={() => {
+                if (!newEventTitle) return;
+                if (roomId && currentUser) {
+                  void createRoomEvent(roomId, currentUser.id, newEventTitle, newEventDate || "TBD").then(refreshRoomData);
+                } else {
+                  setEvents([...events, { id: `e${Date.now()}`, title: newEventTitle, date: newEventDate || "TBD", rsvps: 0, attendees: 0 }]);
+                }
+                setNewEventTitle(""); setNewEventDate(""); setEventSub("list"); showToast("Event created");
+              }}
               className="w-full py-3 rounded-2xl bg-orange-500 text-slate-950 font-extrabold hover:bg-orange-400 cursor-pointer"
             >
               Create Event
@@ -515,9 +645,9 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-slate-400">New Title</label>
-            <input type="text" defaultValue={activeEvent.title} className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-200 focus:border-orange-500 focus:outline-none" />
+            <input type="text" value={newEventTitle || activeEvent.title} onChange={(e) => setNewEventTitle(e.target.value)} className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-200 focus:border-orange-500 focus:outline-none" />
           </div>
-          <button onClick={() => { setEventSub("list"); showToast("Event updated"); }} className="w-full py-3 rounded-2xl bg-orange-500 text-slate-950 font-extrabold hover:bg-orange-400 cursor-pointer">Save Changes</button>
+          <button onClick={() => { if (roomId) void updateRoomEvent(activeEvent.id, newEventTitle || activeEvent.title, activeEvent.date).then(refreshRoomData); setNewEventTitle(""); setEventSub("list"); showToast("Event updated"); }} className="w-full py-3 rounded-2xl bg-orange-500 text-slate-950 font-extrabold hover:bg-orange-400 cursor-pointer">Save Changes</button>
         </div>
       );
     }
@@ -536,13 +666,12 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
             </div>
           </div>
           <div className="space-y-2">
-            {participants.slice(0, 3).map((m) => (
-              <div key={m.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-slate-800/50 border border-slate-700">
-                <img src={m.avatar} alt={m.name} className="w-7 h-7 rounded-full object-cover" />
-                <span className="text-xs font-semibold text-slate-200 flex-1">{m.name}</span>
-                <span className="text-[10px] text-emerald-400 font-bold">Going</span>
-              </div>
-            ))}
+            <button
+              onClick={() => { if (roomId && currentUser) void rsvpToEvent(activeEvent.id, currentUser.id, "going").then(refreshRoomData); showToast("RSVP'd as Going"); }}
+              className="w-full py-2.5 rounded-xl bg-emerald-500 text-slate-950 text-xs font-extrabold hover:bg-emerald-400 cursor-pointer"
+            >
+              RSVP: Going
+            </button>
           </div>
         </div>
       );
@@ -588,7 +717,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
             <p className="text-[10px] text-slate-500">{announcementMode ? "Enabled" : "Disabled"}</p>
           </div>
         </div>
-        <Toggle on={announcementMode} onClick={() => { setAnnouncementMode(!announcementMode); setAnnouncementDrawer(true); }} color="bg-fuchsia-500" />
+        <Toggle on={announcementMode} onClick={() => { const next = !announcementMode; setAnnouncementMode(next); setAnnouncementDrawer(true); if (roomId) void updateRoomSettings(roomId, { announcement_mode: next }); }} color="bg-fuchsia-500" />
       </div>
 
       <AnimatePresence>
@@ -640,7 +769,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
         </div>
         <Toggle on={enforceRules} onClick={() => setEnforceRules(!enforceRules)} color="bg-teal-500" />
       </div>
-      <button onClick={() => showToast("Description & rules saved")} className="w-full py-3 rounded-2xl bg-teal-500 text-slate-950 font-extrabold hover:bg-teal-400 cursor-pointer">Save</button>
+      <button onClick={() => { if (roomId) void updateRoom(roomId, { description: groupDescription }).then(() => updateRoomSettings(roomId, { rules: groupRules, enforce_rules: enforceRules })); showToast("Description & rules saved"); }} className="w-full py-3 rounded-2xl bg-teal-500 text-slate-950 font-extrabold hover:bg-teal-400 cursor-pointer">Save</button>
     </div>
   );
 
@@ -648,27 +777,28 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
     <div className="space-y-4">
       <Header title="Shared Media & File Limits" subtitle="Storage configuration" color="text-amber-400" bg="bg-amber-500/20 border-amber-500/30" icon={<HardDrive className="w-6 h-6" />} onBack={() => setView("hub")} />
       <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700">
-        <p className="text-2xl font-black text-amber-400">2.7 <span className="text-sm text-slate-400">GB</span></p>
-        <p className="text-[10px] text-slate-500 mt-1">Group media storage used</p>
-        <div className="h-2 rounded-full bg-slate-700 overflow-hidden mt-2">
-          <div className="h-full bg-amber-400 rounded-full" style={{ width: "68%" }} />
-        </div>
+        <p className="text-2xl font-black text-amber-400">{mediaStats.total} <span className="text-sm text-slate-400">messages</span></p>
+        <p className="text-[10px] text-slate-500 mt-1">Total messages sent in this room</p>
       </div>
       <div className="space-y-2">
-        {STORAGE_CATEGORIES.map((c) => (
+        {[
+          { label: "Photos", count: mediaStats.images, color: "bg-pink-500" },
+          { label: "Videos", count: mediaStats.videos, color: "bg-indigo-500" },
+          { label: "Voice Notes", count: mediaStats.voice, color: "bg-amber-500" },
+        ].map((c) => (
           <div key={c.label} className="p-3 rounded-xl bg-slate-800/50 border border-slate-700">
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-xs font-semibold text-slate-200">{c.label}</span>
-              <span className="text-[10px] text-slate-500">{c.size}</span>
+              <span className="text-[10px] text-slate-500">{c.count}</span>
             </div>
-            <div className="h-1.5 rounded-full bg-slate-700 overflow-hidden"><div className={`h-full ${c.color} rounded-full`} style={{ width: `${Math.min(90, parseInt(c.size) * 2)}%` }} /></div>
+            <div className="h-1.5 rounded-full bg-slate-700 overflow-hidden"><div className={`h-full ${c.color} rounded-full`} style={{ width: `${mediaStats.total ? Math.min(100, (c.count / mediaStats.total) * 100) : 0}%` }} /></div>
           </div>
         ))}
       </div>
       <div className="space-y-2">
         <p className="text-xs font-bold text-slate-400 flex items-center gap-1.5"><Upload className="w-3.5 h-3.5 text-amber-400" /> Max Upload Size per Member</p>
         {["25 MB", "50 MB", "100 MB", "250 MB"].map((s) => (
-          <button key={s} onClick={() => { setMaxUploadSize(s); showToast(`Max upload: ${s}`); }} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${maxUploadSize === s ? "border-amber-500/60 bg-amber-500/10" : "border-slate-700 bg-slate-800/50"}`}>
+          <button key={s} onClick={() => { setMaxUploadSize(s); if (roomId) void updateRoomSettings(roomId, { max_upload_mb: parseInt(s, 10) }); showToast(`Max upload: ${s}`); }} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${maxUploadSize === s ? "border-amber-500/60 bg-amber-500/10" : "border-slate-700 bg-slate-800/50"}`}>
             <span className="text-xs font-semibold text-slate-200">{s}</span>
             {maxUploadSize === s && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
           </button>
@@ -676,8 +806,8 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
       </div>
       <div className="space-y-2">
         <p className="text-xs font-bold text-slate-400 flex items-center gap-1.5"><Trash2 className="w-3.5 h-3.5 text-rose-400" /> Auto-Delete Group Media</p>
-        {["Never", "After 30 days", "After 90 days", "After 1 year"].map((d) => (
-          <button key={d} onClick={() => { setAutoDeleteMedia(d); showToast(`Auto-delete: ${d}`); }} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${autoDeleteMedia === d ? "border-rose-500/60 bg-rose-500/10" : "border-slate-700 bg-slate-800/50"}`}>
+        {(["Never", "After 30 days", "After 90 days", "After 1 year"] as const).map((d) => (
+          <button key={d} onClick={() => { setAutoDeleteMedia(d); if (roomId) void updateRoomSettings(roomId, { auto_delete_media: d }); showToast(`Auto-delete: ${d}`); }} className={`w-full flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${autoDeleteMedia === d ? "border-rose-500/60 bg-rose-500/10" : "border-slate-700 bg-slate-800/50"}`}>
             <span className="text-xs font-semibold text-slate-200">{d}</span>
             {autoDeleteMedia === d && <CheckCircle2 className="w-4 h-4 text-rose-400" />}
           </button>
@@ -720,6 +850,21 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
             onClick={() => {
               if (!transferPassword) { showToast("Enter your password"); return; }
               setTransferring(true);
+              if (roomId && currentUser?.email) {
+                void verifyPasswordAndTransferOwnership(roomId, currentUser.email, currentUser.id, transferTarget.id, transferPassword).then((result) => {
+                  setTransferring(false);
+                  if (!result.success) {
+                    showToast(result.error || "Transfer failed");
+                    return;
+                  }
+                  refreshRoomData();
+                  setTransferSub("list");
+                  setTransferTarget(null);
+                  setTransferPassword("");
+                  showToast(`Ownership transferred to ${transferTarget.name} ✓`);
+                });
+                return;
+              }
               setTimeout(() => {
                 setParticipants(participants.map((p) => p.id === transferTarget.id ? { ...p, role: "Admin" } : p));
                 setTransferring(false);
@@ -768,14 +913,14 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
             <p className="text-[11px] text-slate-400 mt-1">You will no longer have access to shared files or history.</p>
           </div>
           <div className="space-y-2">
-            <button onClick={() => { setExitSub("list"); showToast("Group archived instead"); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-cyan-500/40 cursor-pointer">
+            <button onClick={() => { setExitSub("list"); if (roomId && currentUser) void setRoomArchived(roomId, currentUser.id, true).then(() => onLeftOrDeleted?.()); showToast("Group archived instead"); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-cyan-500/40 cursor-pointer">
               <Archive className="w-4 h-4 text-cyan-400" />
               <div className="flex-1 text-left">
                 <p className="text-xs font-semibold text-slate-200">Archive Instead</p>
                 <p className="text-[10px] text-slate-500">Hide the group without leaving</p>
               </div>
             </button>
-            <button onClick={() => { setExitSub("list"); showToast("You left the group"); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 cursor-pointer">
+            <button onClick={() => { setExitSub("list"); if (roomId && currentUser) void leaveRoom(roomId, currentUser.id).then(() => onLeftOrDeleted?.()); showToast("You left the group"); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/40 hover:bg-amber-500/20 cursor-pointer">
               <LogOut className="w-4 h-4 text-amber-400" />
               <div className="flex-1 text-left">
                 <p className="text-xs font-semibold text-amber-300">Exit Group</p>
@@ -783,7 +928,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
               </div>
             </button>
             {isAdmin && (
-              <button onClick={() => { setExitSub("list"); showToast("Group deleted for everyone"); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/40 hover:bg-rose-500/20 cursor-pointer">
+              <button onClick={() => { setExitSub("list"); if (roomId) void deleteRoom(roomId).then(() => onLeftOrDeleted?.()); showToast("Group deleted for everyone"); }} className="w-full flex items-center gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/40 hover:bg-rose-500/20 cursor-pointer">
                 <Trash2 className="w-4 h-4 text-rose-400" />
                 <div className="flex-1 text-left">
                   <p className="text-xs font-semibold text-rose-300">Delete Group for Everyone</p>

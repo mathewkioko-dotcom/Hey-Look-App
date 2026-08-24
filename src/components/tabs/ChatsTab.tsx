@@ -16,8 +16,10 @@ import {
   Profile,
   Beacon,
   BeaconComment,
+  ChatRoom,
 } from "../../types";
 import { ChatView } from "../ChatView";
+import { GroupChatView } from "../GroupChatView";
 import { usePresence } from "../../hooks/usePresence";
 import {
   useTypingIndicator,
@@ -31,6 +33,8 @@ import {
 import { BeaconModal } from "../BeaconModal";
 import { BeaconViewer } from "../BeaconViewer";
 import { ContactRosterModal } from "../ContactRosterModal";
+import { CreateGroupModal } from "../chat/CreateGroupModal";
+import { fetchMyRooms } from "../../services/groupChatService";
 import { HymliAiButton } from "../HymliAiButton";
 import { supabase } from "../../lib/supabase";
 import { WebRTCState } from "../../hooks/useWebRTCCall";
@@ -52,6 +56,9 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
   const [searchQuery, setSearchQuery] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isRosterModalOpen, setIsRosterModalOpen] = useState(false);
+  const [rooms, setRooms] = useState<ChatRoom[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState<string>("");
+  const [isCreateGroupOpen, setIsCreateGroupOpen] = useState(false);
 
   // Beacon Modal & Viewer State
   const [isBeaconModalOpen, setIsBeaconModalOpen] = useState(false);
@@ -370,6 +377,15 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
     };
   }, [currentUserId]);
 
+  const loadRooms = () => {
+    if (!currentUserId) return;
+    void fetchMyRooms(currentUserId).then(setRooms);
+  };
+
+  useEffect(() => {
+    loadRooms();
+  }, [currentUserId]);
+
   // ---- AUTO-CLEAR UNREAD ON CHAT SELECT ----
   // When the active conversation changes to a contact, immediately zero out
   // that conversation's unread badge in local state AND mark the unread
@@ -635,6 +651,14 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
             </h2>
             <div className="flex items-center gap-2">
               <button
+                onClick={() => setIsCreateGroupOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold shadow-md transition-all cursor-pointer"
+                title="Create a group or channel"
+              >
+                <Users className="w-4 h-4" />
+                <span>New Group</span>
+              </button>
+              <button
                 onClick={() => setIsRosterModalOpen(true)}
                 className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-white text-xs font-semibold shadow-md transition-all cursor-pointer"
                 title="Start a conversation with registered user"
@@ -730,6 +754,29 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
 
         {/* Conversation List / High-Tech Empty State */}
         <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800/50">
+          {rooms.length > 0 && (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800/50">
+              {rooms.map((room) => (
+                <button
+                  key={room.id}
+                  onClick={() => { setSelectedRoomId(room.id); setSelectedConvId(""); }}
+                  className={`w-full p-3.5 flex items-center gap-3 text-left transition-colors cursor-pointer ${
+                    selectedRoomId === room.id
+                      ? isDark ? "bg-slate-800/90" : "bg-indigo-50/70"
+                      : "hover:bg-slate-50 dark:hover:bg-slate-800/50"
+                  }`}
+                >
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-gradient-to-tr from-cyan-500 to-purple-600 text-white">
+                    <Users className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{room.name}</span>
+                    <span className="block truncate text-xs text-slate-400">{room.type === "channel" ? "Channel" : "Group"} • {room.member_count || 1} members</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
           {isLoading ? (
             <div className="p-8 text-center text-slate-400 flex flex-col items-center justify-center space-y-2">
               <Anchor className="w-8 h-8 text-cyan-400 animate-spin" />
@@ -856,9 +903,15 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
 
       {/* RIGHT CHAT VIEW AREA */}
       <div
-        className={`min-w-0 min-h-0 flex-1 flex flex-col h-full ${!selectedConvId && "hidden md:flex"}`}
+        className={`min-w-0 min-h-0 flex-1 flex flex-col h-full ${!selectedConvId && !selectedRoomId && "hidden md:flex"}`}
       >
-        {activeConv && activeConv.user ? (
+        {selectedRoomId && rooms.find((r) => r.id === selectedRoomId) ? (
+          <GroupChatView
+            room={rooms.find((r) => r.id === selectedRoomId) as ChatRoom}
+            currentUser={currentUser}
+            onBack={() => { setSelectedRoomId(""); loadRooms(); }}
+          />
+        ) : activeConv && activeConv.user ? (
 <ChatView
             activeConv={activeConv}
             currentUser={currentUser}
@@ -894,6 +947,14 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
         currentUser={currentUser}
         profiles={registeredProfiles}
         onSelectContact={handleStartNewChatWithProfile}
+      />
+
+      <CreateGroupModal
+        isOpen={isCreateGroupOpen}
+        onClose={() => setIsCreateGroupOpen(false)}
+        currentUser={currentUser}
+        profiles={registeredProfiles}
+        onCreated={(roomId) => { loadRooms(); setSelectedRoomId(roomId); setSelectedConvId(""); }}
       />
 
       {/* BEACON CREATOR MODAL */}
