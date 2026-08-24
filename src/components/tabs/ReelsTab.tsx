@@ -183,7 +183,7 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
     setFollowingMap((prev) => ({ ...prev, [username]: !currentlyJoined }));
     const result = currentlyJoined
       ? await supabase.from("follows").delete().eq("follower_id", currentUser.id).eq("following_id", currentReel.user_id)
-      : await supabase.from("follows").upsert({ follower_id: currentUser.id, following_id: currentReel.user_id, status: "pending" }, { onConflict: "follower_id,following_id" });
+      : await supabase.from("follows").delete().eq("follower_id", currentUser.id).eq("following_id", currentReel.user_id).in("status", ["rejected", "ignored"]).then(async (cleanup) => cleanup.error ? cleanup : supabase.from("follows").insert({ follower_id: currentUser.id, following_id: currentReel.user_id, status: "pending" }));
     if (result.error) setFollowingMap((prev) => ({ ...prev, [username]: currentlyJoined }));
   };
 

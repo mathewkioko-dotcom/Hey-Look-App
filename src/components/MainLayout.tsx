@@ -173,6 +173,17 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
         if (!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) playMessageAlert();
         window.setTimeout(() => setLiveNotification((current) => current?.id === notification.id ? null : current), 5000);
       })
+      .on("postgres_changes", { event: "*", schema: "public", table: "follows" }, async (payload) => {
+        const row = (payload.new || payload.old) as any;
+        if (!isMounted || !row || (row.following_id !== currentUser.id && row.follower_id !== currentUser.id)) return;
+        const actorId = row.follower_id === currentUser.id ? row.following_id : row.follower_id;
+        if (actorId === currentUser.id) return;
+        const { data: profile } = await supabase.from("profiles").select("full_name, username, avatar_url").eq("id", actorId).maybeSingle();
+        const text = payload.eventType === "DELETE" ? "left your fleet" : row.status === "accepted" ? "accepted your fleet request" : row.status === "rejected" ? "rejected your fleet request" : row.status === "ignored" ? "ignored your fleet request" : row.following_id === currentUser.id ? "requested to join your fleet" : "sent a fleet request";
+        const notification = { id: `fleet-${actorId}-${row.status || "deleted"}-${Date.now()}`, senderName: profile?.full_name || profile?.username || "A HeyLook user", senderAvatar: profile?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user", text, createdAt: new Date().toISOString() };
+        setNotifications((previous) => [notification, ...previous].slice(0, 20));
+        if (!notificationsSnoozedUntil || Date.now() >= notificationsSnoozedUntil) { setLiveNotification(notification); playMessageAlert(); }
+      })
       .subscribe();
 
     return () => {

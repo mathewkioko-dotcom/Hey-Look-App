@@ -101,10 +101,10 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
     if (!currentUserId || currentUserId === targetUser.id || isRelationshipLoading) return;
     setIsRelationshipLoading(true);
     const nextInFleet = !isInFleet;
-    setIsInFleet(nextInFleet);
+    setIsInFleet(false);
     setFleetStatus(nextInFleet ? 'pending' : 'none');
     const result = nextInFleet
-      ? await supabase.from('follows').upsert({ follower_id: currentUserId, following_id: targetUser.id, status: 'pending' }, { onConflict: 'follower_id,following_id' })
+      ? await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('following_id', targetUser.id).in('status', ['rejected', 'ignored']).then(async (cleanup) => cleanup.error ? cleanup : supabase.from('follows').insert({ follower_id: currentUserId, following_id: targetUser.id, status: 'pending' }))
       : await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('following_id', targetUser.id);
     if (result.error) {
       setIsInFleet(!nextInFleet);

@@ -57,7 +57,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
     setJoinedFleet((items) => ({ ...items, [post.user_id as string]: !accepted }));
     const result = accepted
       ? await supabase.from("follows").delete().eq("follower_id", currentUser.id).eq("following_id", post.user_id)
-      : await supabase.from("follows").upsert({ follower_id: currentUser.id, following_id: post.user_id, status: "pending" }, { onConflict: "follower_id,following_id" });
+      : await supabase.from("follows").delete().eq("follower_id", currentUser.id).eq("following_id", post.user_id).in("status", ["rejected", "ignored"]).then(async (cleanup) => cleanup.error ? cleanup : supabase.from("follows").insert({ follower_id: currentUser.id, following_id: post.user_id, status: "pending" }));
     if (result.error) setJoinedFleet((items) => ({ ...items, [post.user_id as string]: accepted }));
   };
 

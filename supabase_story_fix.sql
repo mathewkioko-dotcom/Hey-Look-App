@@ -240,6 +240,16 @@ DROP POLICY IF EXISTS "Users can mutiny from a fleet" ON public.follows;
 CREATE POLICY "Users can mutiny from a fleet" ON public.follows
   FOR DELETE TO authenticated USING (auth.uid() = follower_id);
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'follows'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.follows;
+  END IF;
+END $$;
+
 DROP POLICY IF EXISTS "Users can respond to fleet requests" ON public.follows;
 CREATE POLICY "Users can respond to fleet requests" ON public.follows
   FOR UPDATE TO authenticated USING (auth.uid() = following_id) WITH CHECK (auth.uid() = following_id);
