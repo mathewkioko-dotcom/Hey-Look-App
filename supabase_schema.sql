@@ -81,9 +81,14 @@ CREATE TABLE IF NOT EXISTS public.posts (
 
 CREATE TABLE IF NOT EXISTS public.messages (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  room_id UUID,
   sender_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   receiver_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  content TEXT,
   text TEXT,
+  status SMALLINT DEFAULT 1,
+  is_read BOOLEAN DEFAULT false,
+  is_deleted BOOLEAN DEFAULT false,
   type TEXT DEFAULT 'text',
   image_url TEXT,
   video_url TEXT,
@@ -93,8 +98,24 @@ CREATE TABLE IF NOT EXISTS public.messages (
   reply_to_id UUID,
   reply_preview JSONB,
   call_info JSONB,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  edited_at TIMESTAMP WITH TIME ZONE
 );
+
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS room_id UUID;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS content TEXT;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS status SMALLINT DEFAULT 1;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS edited_at TIMESTAMP WITH TIME ZONE;
+
+ALTER TABLE public.messages DROP CONSTRAINT IF EXISTS check_messages_status_range;
+ALTER TABLE public.messages ADD CONSTRAINT check_messages_status_range
+  CHECK (status IN (0, 1, 2, 3));
+
+CREATE INDEX IF NOT EXISTS idx_messages_room_id ON public.messages(room_id);
+CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver ON public.messages(sender_id, receiver_id);
+CREATE INDEX IF NOT EXISTS idx_messages_is_read ON public.messages(is_read);
 
 -- Ensure audio_url / audio_duration columns exist for voice note messaging
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS audio_url TEXT;

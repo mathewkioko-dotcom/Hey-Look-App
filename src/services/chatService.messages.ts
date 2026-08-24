@@ -218,7 +218,7 @@ export async function sendMessage(
       try {
         await supabase
           .from("messages")
-          .update({ is_read: true })
+          .update({ is_read: true, delivery_state: 3, status: 3 })
           .eq("sender_id", newMessage.receiver_id)
           .eq("receiver_id", currentUserId);
       } catch (err) {
@@ -509,7 +509,7 @@ export async function markSubmerged(
       // direct UPDATE against the correct `delivery_state` column.
       await supabase
         .from("messages")
-        .update({ delivery_state: 3 })
+        .update({ delivery_state: 3, is_read: true, status: 3 })
         .eq("id", messageId)
         .eq("receiver_id", currentUserId);
     }
@@ -534,7 +534,7 @@ export async function markDelivered(
   try {
     const { error } = await supabase
       .from("messages")
-      .update({ delivery_state: 2 })
+      .update({ delivery_state: 2, status: 2 })
       .eq("id", messageId)
       .eq("receiver_id", currentUserId)
       .gte("delivery_state", 1) // Only update if status is Sent (1) or Failed (0)

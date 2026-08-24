@@ -133,7 +133,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
   return (
     <div
-      className={`min-h-screen flex flex-col transition-colors duration-300 ${
+      className={`min-h-screen w-full flex flex-col overflow-x-hidden transition-colors duration-300 ${
         isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
       }`}
     >
@@ -168,14 +168,14 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           </div>
 
           {/* Global Search Bar */}
-          <div className="flex-1 max-w-md relative">
+          <div className="flex-1 min-w-0 max-w-md relative">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search chats, posts, reels, or people..."
+              placeholder="Search..."
               value={globalSearch}
               onChange={(e) => setGlobalSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 text-xs sm:text-sm rounded-2xl bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-indigo-500 focus:outline-none transition-all"
+              className="w-full min-w-0 pl-10 pr-4 py-2 text-xs sm:text-sm rounded-2xl bg-slate-100 dark:bg-slate-800 border border-transparent focus:border-indigo-500 focus:outline-none transition-all"
             />
           </div>
 
@@ -275,7 +275,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       </header>
 
       {/* MAIN BODY CONTENT CONTAINER */}
-      <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-6 pb-20 md:pb-24">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 py-3 sm:px-6 sm:py-6 pb-20 md:pb-24 overflow-x-hidden">
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
@@ -313,13 +313,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
       {/* 4-TAB BOTTOM NAVIGATION BAR (Responsive Mobile & Desktop Dock) */}
       <nav
-        className={`fixed bottom-0 inset-x-0 z-50 border-t backdrop-blur-2xl transition-colors ${
+        className={`fixed bottom-0 inset-x-0 z-50 border-t backdrop-blur-2xl transition-colors w-full ${
           isDark
             ? "bg-slate-900/90 border-slate-800/80 shadow-2xl"
             : "bg-white/90 border-slate-200 shadow-lg"
         }`}
       >
-        <div className="max-w-md mx-auto flex items-center justify-around p-2 py-2.5">
+        <div className="max-w-md mx-auto flex items-center justify-around p-2 py-2.5 w-full">
           {/* Tab 1: WhatsApp Chats */}
           <button
             onClick={() => setActiveTab("chats")}

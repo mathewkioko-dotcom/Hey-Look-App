@@ -52,13 +52,19 @@ export function generateUuid(): string {
  * first 8 hex chars of each UUID to keep it compact while still unique.
  */
 export function deriveRoomId(a?: string, b?: string): string {
-  const parts = [a || "", b || ""].filter(Boolean).map((id) => {
-    const clean = id.replace(/[^0-9a-f]/gi, "");
-    return clean.slice(0, 8).padEnd(8, "0");
-  });
-  if (parts.length === 0) return "shared-room";
-  parts.sort();
-  return `room_${parts.join("_")}`;
+  const validIds = [a, b]
+    .filter((id): id is string => Boolean(id) && isValidUuid(id))
+    .sort();
+
+  if (validIds.length >= 2) {
+    return validIds[0];
+  }
+
+  if (validIds.length === 1) {
+    return validIds[0];
+  }
+
+  return generateUuid();
 }
 
 /**

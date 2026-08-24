@@ -731,7 +731,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       try {
         await supabase
           .from("messages")
-          .update({ is_read: true })
+          .update({ is_read: true, delivery_state: 3, status: 3 })
           .eq("sender_id", activeConv.user.id)
           .eq("receiver_id", currentUser.id);
       } catch (e) {

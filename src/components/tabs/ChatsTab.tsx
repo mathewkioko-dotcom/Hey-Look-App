@@ -395,7 +395,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
       try {
         await supabase
           .from("messages")
-          .update({ is_read: true })
+          .update({ is_read: true, delivery_state: 3, status: 3 })
           .eq("sender_id", senderId)
           .eq("receiver_id", currentUserId);
       } catch (e) {

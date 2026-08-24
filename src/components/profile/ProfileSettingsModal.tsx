@@ -962,7 +962,7 @@ if (statusOption === "custom") { updates.custom_status = customStatusText as Nau
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.92, y: 20 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-lg max-h-[85vh] overflow-y-auto bg-slate-900 border border-slate-700 rounded-3xl p-6 shadow-2xl text-slate-100 relative"
+            className="w-[min(100%,32rem)] max-w-[calc(100vw-1rem)] max-h-[88vh] overflow-y-auto overflow-x-hidden bg-slate-900 border border-slate-700 rounded-3xl p-4 sm:p-6 shadow-2xl text-slate-100 relative"
           >
             <button onClick={closeModal} className="absolute top-4 right-4 p-2 rounded-full bg-slate-800 text-slate-400 hover:text-white z-10 cursor-pointer">
               <X className="w-5 h-5" />

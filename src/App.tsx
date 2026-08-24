@@ -116,18 +116,24 @@ export default function App() {
   };
 
   const handleUpdateProfile = (updatedProps: Partial<Profile>) => {
-    setCurrentUser((prev) => ({
-      ...prev,
-      ...updatedProps,
-    }));
+    setCurrentUser((prev) => {
+      if (!prev) {
+        return null;
+      }
+
+      return {
+        ...prev,
+        ...updatedProps,
+      } as Profile;
+    });
   };
 
   return (
     <div
       className={
         isDark
-          ? "dark bg-[#050505] text-[#e0e0e0] min-h-screen"
-          : "bg-slate-50 text-slate-900 min-h-screen"
+          ? "dark bg-[#050505] text-[#e0e0e0] min-h-screen w-full overflow-x-hidden"
+          : "bg-slate-50 text-slate-900 min-h-screen w-full overflow-x-hidden"
       }
     >
       {step === "splash" && (
