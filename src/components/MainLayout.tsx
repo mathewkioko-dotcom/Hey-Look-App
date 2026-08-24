@@ -560,6 +560,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           isMuted={webrtc.isMuted}
           isCameraOff={webrtc.isCameraOff}
           callDuration={webrtc.callDuration}
+          mediaError={webrtc.mediaError}
           onAccept={webrtc.acceptCall}
           onDecline={webrtc.declineCall}
           onEndCall={webrtc.endCall}

@@ -26,6 +26,7 @@ interface CallOverlayProps {
   isMuted: boolean;
   isCameraOff: boolean;
   callDuration: number;
+  mediaError: string | null;
   onAccept: () => void;
   onDecline: () => void;
   onEndCall: () => void;
@@ -44,6 +45,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
   isMuted,
   isCameraOff,
   callDuration,
+  mediaError,
   onAccept,
   onDecline,
   onEndCall,
@@ -191,6 +193,11 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
             {/* Video Stage / Voice Stage */}
             <div className="relative flex-1 w-full h-full bg-slate-900 flex items-center justify-center overflow-hidden">
+              {mediaError && (
+                <div className="absolute top-20 inset-x-4 z-30 mx-auto max-w-sm px-4 py-2 rounded-xl bg-amber-500/90 text-slate-950 text-xs font-bold text-center shadow-lg">
+                  {mediaError}
+                </div>
+              )}
               <audio ref={remoteAudioRef} autoPlay playsInline />
               {/* Remote Stream Video */}
               {callType === "video" && remoteStream ? (

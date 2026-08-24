@@ -23,6 +23,7 @@ export interface WebRTCState {
   isMuted: boolean;
   isCameraOff: boolean;
   callDuration: number;
+  mediaError: string | null;
   startCall: (receiver: Profile, type: CallType) => Promise<void>;
   acceptCall: () => Promise<void>;
   declineCall: () => Promise<void>;
@@ -52,6 +53,11 @@ export function useWebRTCCall(currentUser: Profile) {
   const [isMuted, setIsMuted] = useState(false);
   const [isCameraOff, setIsCameraOff] = useState(false);
   const [callDuration, setCallDuration] = useState(0);
+  // Set when a video call's camera track could not be acquired (denied,
+  // already in use by another tab/app, no camera present, etc.) and the call
+  // silently continued audio-only — surfaced in the UI instead of leaving the
+  // user staring at a blank video box with no explanation.
+  const [mediaError, setMediaError] = useState<string | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -74,12 +80,37 @@ export function useWebRTCCall(currentUser: Profile) {
   const setupGlobalChannelRef = useRef<() => void>(() => {});
   // Stable ref to cleanupCall so media-stream changes don't tear down signaling.
   const cleanupCallRef = useRef<() => void>(() => {});
+  // ICE candidates can arrive before this side has a peer connection (callee
+  // hasn't clicked Accept yet) or before setRemoteDescription has resolved.
+  // Buffer them here and flush once the connection is ready, instead of
+  // silently dropping them (which previously starved ICE negotiation).
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
 
-  // STUN Configuration
+  // STUN discovers a device's public address, but it cannot traverse the
+  // symmetric NAT / CGNAT that most mobile carriers use — which is exactly
+  // the case for a phone-to-phone (cellular) call. Without a TURN relay as a
+  // fallback, ICE negotiation silently fails and the call "connects" in the
+  // UI with no audio/video ever flowing. Open Relay Project's free public
+  // TURN server is added here as a fallback path.
   const rtcConfig: RTCConfiguration = {
     iceServers: [
       {
         urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
+      },
+      {
+        urls: "turn:openrelay.metered.ca:80",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443",
+        username: "openrelayproject",
+        credential: "openrelayproject",
+      },
+      {
+        urls: "turn:openrelay.metered.ca:443?transport=tcp",
+        username: "openrelayproject",
+        credential: "openrelayproject",
       },
     ],
   };
@@ -279,13 +310,32 @@ export function useWebRTCCall(currentUser: Profile) {
       pcRef.current = null;
     }
 
+    pendingIceCandidatesRef.current = [];
+
     setCallState("idle");
     setIncomingCall(null);
     setTargetUser(null);
     setIsMuted(false);
     setIsCameraOff(false);
     setCallDuration(0);
+    setMediaError(null);
   }, [localStream, stopRingChime]);
+
+  // Drain any ICE candidates that arrived before the peer connection had a
+  // remote description set, applying them now that it does.
+  const flushPendingIceCandidates = useCallback(async () => {
+    const pc = pcRef.current;
+    if (!pc) return;
+    const queued = pendingIceCandidatesRef.current;
+    pendingIceCandidatesRef.current = [];
+    for (const candidate of queued) {
+      try {
+        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch (e) {
+        console.warn("[WebRTC] Error adding queued ICE candidate:", e);
+      }
+    }
+  }, []);
 
   // Keep a stable ref to cleanupCall so media-stream changes don't tear down
   // signaling.
@@ -489,25 +539,40 @@ const caller =
             await pcRef.current.setRemoteDescription(
               new RTCSessionDescription(payload.sdp),
             );
+            await flushPendingIceCandidates();
             // Instantly connect and reset the call-duration counter so the
             // caller's timer starts from 0 the moment the receiver answers.
             setCallState("connected");
             setCallDuration(0);
           }
         })
-        // BOTH: exchange ICE candidates.
+        // BOTH: exchange ICE candidates. Filtered by targetUserId so candidates
+        // from unrelated calls on the shared global channel (e.g. other open
+        // tabs/devices) are never fed into the wrong peer connection.
         .on(
           "broadcast",
           { event: "ice-candidate" },
           async ({ payload }: any) => {
-            if (pcRef.current && payload && payload.candidate) {
-              try {
-                await pcRef.current.addIceCandidate(
-                  new RTCIceCandidate(payload.candidate),
-                );
-              } catch (e) {
-                console.warn("[WebRTC] Error adding ICE candidate:", e);
-              }
+            if (
+              !payload ||
+              !payload.candidate ||
+              String(payload.targetUserId) !== String(currentUser?.id)
+            ) {
+              return;
+            }
+            // Buffer until the peer connection exists AND its remote description
+            // is set — adding candidates any earlier either throws or is a no-op
+            // that silently loses the candidate for good.
+            if (!pcRef.current || !pcRef.current.remoteDescription) {
+              pendingIceCandidatesRef.current.push(payload.candidate);
+              return;
+            }
+            try {
+              await pcRef.current.addIceCandidate(
+                new RTCIceCandidate(payload.candidate),
+              );
+            } catch (e) {
+              console.warn("[WebRTC] Error adding ICE candidate:", e);
             }
           },
         )
@@ -666,6 +731,7 @@ const caller =
 
       setTargetUser(receiver);
       setCallType(type);
+      setMediaError(null);
       // Explicit call-status state machine: the caller starts in 'calling...'.
       // IMPORTANT: we do NOT reset to 'idle' on non-fatal background warnings;
       // the caller modal stays open in 'calling' until answered or timed out.
@@ -673,6 +739,12 @@ const caller =
 
       const stream = await getMediaStreamWithFallback(type);
       setLocalStream(stream);
+      if (type === "video" && stream.getVideoTracks().length === 0) {
+        setIsCameraOff(true);
+        setMediaError(
+          "Camera unavailable (denied, in use elsewhere, or missing) — continuing audio-only.",
+        );
+      }
 
       const pc = createPeerConnection(receiver.id);
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -742,9 +814,16 @@ const caller =
       setCallDuration(0);
 
       setCallState("connected");
+      setMediaError(null);
 
       const stream = await getMediaStreamWithFallback(incomingCall.callType);
       setLocalStream(stream);
+      if (incomingCall.callType === "video" && stream.getVideoTracks().length === 0) {
+        setIsCameraOff(true);
+        setMediaError(
+          "Camera unavailable (denied, in use elsewhere, or missing) — continuing audio-only.",
+        );
+      }
 
       const pc = createPeerConnection(incomingCall.caller.id);
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
@@ -753,6 +832,7 @@ const caller =
         await pc.setRemoteDescription(
           new RTCSessionDescription(incomingCall.sdpOffer),
         );
+        await flushPendingIceCandidates();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -825,6 +905,7 @@ const caller =
     isMuted,
     isCameraOff,
     callDuration,
+    mediaError,
     startCall,
     acceptCall,
     declineCall,
