@@ -21,6 +21,7 @@ function mapProfileRow(item: any): Profile {
       (item?.is_online ? "in_focus" : "last_anchored"),
     last_anchored: item?.last_anchored,
     bio: item?.bio || "Exploring HeyLook Nautical Stream",
+    phone_number: item?.phone_number || "",
   };
 }
 
@@ -106,6 +107,7 @@ export async function fetchAllProfiles(
           (item?.is_online ? "in_focus" : "last_anchored"),
         last_anchored: item?.last_anchored,
         bio: item?.bio || "Exploring HeyLook Nautical Stream",
+        phone_number: item?.phone_number || "",
       }))
       .sort((a, b) =>
         (a.full_name || a.username || "").localeCompare(

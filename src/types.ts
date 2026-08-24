@@ -25,6 +25,8 @@ export interface Profile {
   followers_count?: number;
   following_count?: number;
   posts_count?: number;
+  /** Real E.164 phone number (e.g. +12025551234) used for Twilio PSTN calls. */
+  phone_number?: string;
 }
 
 /**

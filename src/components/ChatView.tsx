@@ -96,6 +96,7 @@ import { BeaconViewer } from "./BeaconViewer";
 import { MessageStatus } from "./MessageStatus";
 import { usePresence } from "../hooks/usePresence";
 import { chatService, filterVanishingMessages } from "../services/chatService";
+import { placeRealPhoneCall } from "../services/phoneCallService";
 import { supabase } from "../lib/supabase";
 import { ollamaService } from "../services/ollamaService";
 import { hymliAiService } from "../services/hymliAiService";
@@ -1644,7 +1645,14 @@ export const ChatView: React.FC<ChatViewProps> = ({
             setIsChatInfoOpen(true);
           }}
           onOpenCanvas={() => setIsCanvasOpen(true)}
-          onStartCall={(kind) => webrtc.startCall(targetProfile, kind)}
+          onStartCall={async () => {
+            // Real phone-network call (Twilio bridge) replaces the old
+            // WebRTC in-app call — works over any distance since it rides
+            // the carrier network instead of a peer-to-peer internet path.
+            showNotice(`Dialing ${targetProfile.full_name || targetProfile.username}'s phone...`);
+            const result = await placeRealPhoneCall(currentUser, targetProfile);
+            showNotice(result.success ? "Call placed — their phone is ringing" : result.error || "Could not place the call");
+          }}
           onBack={onBack}
           isSearching={isSearching}
           searchQuery={searchQuery}

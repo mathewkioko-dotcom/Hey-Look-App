@@ -4,6 +4,7 @@
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS story_visibility TEXT NOT NULL DEFAULT 'Everyone';
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS profile_photo_visibility TEXT NOT NULL DEFAULT 'Everyone';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS phone_number TEXT;
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can read profiles" ON public.profiles;
@@ -374,31 +375,38 @@ CREATE POLICY "Story owners can view audience counts" ON public.story_views
 -- replication worker if it runs inside the same batch/transaction as other
 -- DDL. If you still hit "deadlock detected", just re-run this block again —
 -- it's a transient lock collision, not a logic error.
+-- Each block also checks the target table actually exists first, so running
+-- this before the CREATE TABLE statements above (or against a partially
+-- migrated database) never throws "relation does not exist".
 -- ============================================================================
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages') THEN
+  IF to_regclass('public.messages') IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'messages') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
   END IF;
 END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications') THEN
+  IF to_regclass('public.notifications') IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'notifications') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
   END IF;
 END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'follows') THEN
+  IF to_regclass('public.follows') IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'follows') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.follows;
   END IF;
 END $$;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'story_reactions') THEN
+  IF to_regclass('public.story_reactions') IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM pg_publication_tables WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'story_reactions') THEN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.story_reactions;
   END IF;
 END $$;

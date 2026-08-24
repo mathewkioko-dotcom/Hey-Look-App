@@ -733,6 +733,7 @@ export const feedService = {
       if (updates.bio !== undefined) payload.bio = updates.bio;
       if (updates.custom_status !== undefined) payload.custom_status = updates.custom_status;
       if (updates.nautical_presence !== undefined) payload.custom_status = updates.nautical_presence;
+      if (updates.phone_number !== undefined) payload.phone_number = updates.phone_number;
 
       const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
       if (error) {

@@ -43,6 +43,7 @@ import {
   Globe,
   Camera,
   Upload,
+  Phone,
 } from "lucide-react";
 import { Profile, OAuthProvider, NauticalPresenceState } from "../../types";
 import { feedService } from "../../services/feedService";
@@ -144,7 +145,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [toast, setToast] = useState<string>("");
 
   // Edit Profile state
-  const [editSub, setEditSub] = useState<"list" | "avatar" | "name" | "bio" | "handle">("list");
+  const [editSub, setEditSub] = useState<"list" | "avatar" | "name" | "bio" | "handle" | "phone">("list");
   const [avatarInput, setAvatarInput] = useState(currentUser.avatar_url || "");
   const [avatarZoom, setAvatarZoom] = useState(1);
   const [avatarFilter, setAvatarFilter] = useState("none");
@@ -153,6 +154,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   const [nameInput, setNameInput] = useState(currentUser.full_name || "");
   const [bioInput, setBioInput] = useState(currentUser.bio || "");
   const [handleInput, setHandleInput] = useState(currentUser.username || "");
+  const [phoneInput, setPhoneInput] = useState(currentUser.phone_number || "");
 
   // Account Status
   const [statusOption, setStatusOption] = useState<"focus" | "adrift" | "custom" | "timer">("focus");
@@ -384,6 +386,30 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           </div>
         );
       }
+      if (editSub === "phone") {
+        return (
+          <div className="space-y-4">
+            <Header title="Phone Number" subtitle="Used for real phone-network calls" color="text-cyan-400" bg="bg-cyan-500/20 border-cyan-500/30" icon={<Phone className="w-6 h-6" />} onBack={back} />
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-slate-400">Phone Number (E.164 format)</label>
+              <input type="tel" value={phoneInput} onChange={(e) => setPhoneInput(e.target.value.replace(/[^\d+]/g, ""))} placeholder="+12025551234" className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" />
+              <p className="text-[10px] text-slate-500">Include the country code, e.g. +254712345678. Calls placed to/from you will dial this real number.</p>
+            </div>
+            <button
+              onClick={() => {
+                if (phoneInput && !/^\+[1-9]\d{6,14}$/.test(phoneInput)) {
+                  showToast("Enter a valid E.164 number, e.g. +12025551234");
+                  return;
+                }
+                saveProfile({ phone_number: phoneInput });
+              }}
+              className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer"
+            >
+              Save Phone Number
+            </button>
+          </div>
+        );
+      }
       // handle
       return (
         <div className="space-y-4">
@@ -416,6 +442,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             { k: "name" as const, label: "Edit Name", desc: "Your display name", icon: <Type className="w-4 h-4 text-indigo-400" /> },
             { k: "bio" as const, label: "Edit Bio", desc: "Your personal story", icon: <AlignLeft className="w-4 h-4 text-emerald-400" /> },
             { k: "handle" as const, label: "Custom Handle", desc: "Your @username", icon: <AtSign className="w-4 h-4 text-pink-400" /> },
+            { k: "phone" as const, label: "Phone Number", desc: "For real phone-network calls", icon: <Phone className="w-4 h-4 text-amber-400" /> },
           ].map((item) => (
             <button key={item.k} onClick={() => setEditSub(item.k)} className="w-full flex items-center gap-3 p-3 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-cyan-500/40 transition-all cursor-pointer text-left">
               {item.icon}

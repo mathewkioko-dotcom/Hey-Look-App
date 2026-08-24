@@ -5,7 +5,7 @@ import { feedService, StoryItem } from "../../services/feedService";
 import { supabase } from "../../lib/supabase";
 import { fetchAllProfiles } from "../../services/chatService.profiles";
 import { fetchRecentCallLogs } from "../../services/chatService.calls";
-import { useCall } from "../../context/CallContext";
+import { placeRealPhoneCall } from "../../services/phoneCallService";
 
 interface HomeTabProps {
   currentUser: Profile;
@@ -22,7 +22,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
   const [commentText, setCommentText] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [recentCalls, setRecentCalls] = useState<CallLog[]>([]);
-  const { startCall } = useCall();
+  const [callNotice, setCallNotice] = useState("");
   const [otherUsers, setOtherUsers] = useState<Profile[]>([]);
   const [newPostText, setNewPostText] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
@@ -121,11 +121,20 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
     const profile = otherUserId === call.caller_id
       ? { id: call.caller_id, username: call.caller_name, full_name: call.caller_name, avatar_url: call.caller_avatar }
       : await import("../../services/chatService.profiles").then(({ fetchProfileById }) => fetchProfileById(otherUserId));
-    if (profile) await startCall(profile, call.call_type);
+    if (!profile) return;
+    // Real phone-network call (Twilio bridge) replaces the old WebRTC call.
+    const result = await placeRealPhoneCall(currentUser, profile);
+    setCallNotice(result.success ? "Call placed — their phone is ringing" : result.error || "Could not place the call");
+    setTimeout(() => setCallNotice(""), 3000);
   };
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 pb-12">
+      {callNotice && (
+        <div className="fixed inset-x-4 bottom-24 z-50 mx-auto max-w-sm rounded-2xl bg-slate-900/95 px-4 py-2.5 text-center text-xs font-bold text-slate-100 shadow-2xl">
+          {callNotice}
+        </div>
+      )}
       <header className="flex items-center gap-2 px-2">
         <Home className="h-5 w-5 text-cyan-400" />
         <div><h2 className="text-xl font-bold text-slate-100">Home</h2><p className="text-xs text-slate-400">Stories and updates from HeyLook</p></div>
