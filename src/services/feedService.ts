@@ -574,6 +574,12 @@ export const feedService = {
       }
 
       const userIds = Array.from(new Set(rawReels.map((r: any) => r.user_id).filter(Boolean)));
+      const reelIds = rawReels.map((reel: any) => reel.id);
+      const [{ data: reelLikes }, { data: reelSaves }, { data: reelComments }] = await Promise.all([
+        supabase.from('reel_likes').select('reel_id, user_id').in('reel_id', reelIds),
+        supabase.from('reel_saves').select('reel_id, user_id').in('reel_id', reelIds),
+        supabase.from('reel_comments').select('reel_id').in('reel_id', reelIds),
+      ]);
       let profileMap: Record<string, any> = {};
       if (userIds.length > 0) {
         const { data: profiles } = await supabase.from('profiles').select('*').in('id', userIds);
@@ -586,6 +592,7 @@ export const feedService = {
         const p = profileMap[r.user_id] || {};
         return {
           id: r.id,
+          user_id: r.user_id,
           author: {
             name: p.full_name || p.username || 'Reel Creator',
             username: p.username || 'creator',
@@ -596,9 +603,10 @@ export const feedService = {
           video_url: r.video_url || r.media_url || 'https://assets.mixkit.co/videos/preview/mixkit-tree-branches-in-the-breeze-1188-large.mp4',
           poster_url: r.poster_url || r.thumbnail_url || 'https://images.unsplash.com/photo-1518791841217-8f162f1e1131?w=800',
           likes_count: r.likes_count || 0,
-          comments_count: r.comments_count || 0,
+          comments_count: (reelComments || []).filter((comment: any) => comment.reel_id === r.id).length || r.comments_count || 0,
           shares_count: r.shares_count || 0,
-          is_liked: false,
+          saves_count: (reelSaves || []).filter((save: any) => save.reel_id === r.id).length || r.saves_count || 0,
+          is_liked: (reelLikes || []).some((like: any) => like.reel_id === r.id && like.user_id === currentUserId),
         };
       });
     } catch (err) {
@@ -658,6 +666,7 @@ export const feedService = {
 
       return {
         id: data.id,
+        user_id: userId,
         author: {
           name: 'You',
           username: 'current_user',
@@ -669,6 +678,7 @@ export const feedService = {
         likes_count: 0,
         comments_count: 0,
         shares_count: 0,
+        saves_count: 0,
         is_liked: false,
       };
     } catch (err) {
@@ -677,13 +687,43 @@ export const feedService = {
     }
   },
 
+  async setReelLike(reelId: string, userId: string, liked: boolean): Promise<boolean> {
+    const result = liked
+      ? await supabase.from('reel_likes').upsert({ reel_id: reelId, user_id: userId }, { onConflict: 'reel_id,user_id' })
+      : await supabase.from('reel_likes').delete().eq('reel_id', reelId).eq('user_id', userId);
+    return !result.error;
+  },
+
+  async setReelSave(reelId: string, userId: string, saved: boolean): Promise<boolean> {
+    const result = saved
+      ? await supabase.from('reel_saves').upsert({ reel_id: reelId, user_id: userId }, { onConflict: 'reel_id,user_id' })
+      : await supabase.from('reel_saves').delete().eq('reel_id', reelId).eq('user_id', userId);
+    return !result.error;
+  },
+
+  async addReelComment(reelId: string, userId: string, text: string, mediaUrl?: string): Promise<boolean> {
+    const { error } = await supabase.from('reel_comments').insert({ reel_id: reelId, user_id: userId, text, media_url: mediaUrl || null });
+    return !error;
+  },
+
+  async fetchReelComments(reelId: string): Promise<string[]> {
+    const { data, error } = await supabase.from('reel_comments').select('text, media_url').eq('reel_id', reelId).order('created_at', { ascending: true });
+    if (error || !data) return [];
+    return data.map((comment: any) => comment.media_url ? `${comment.text} [media]` : comment.text);
+  },
+
+  async recordReelShare(reelId: string): Promise<boolean> {
+    const { data: reel } = await supabase.from('reels').select('shares_count').eq('id', reelId).single();
+    const { error } = await supabase.from('reels').update({ shares_count: (reel?.shares_count || 0) + 1 }).eq('id', reelId);
+    return !error;
+  },
+
   /**
    * Save / Sync profile changes to Supabase `profiles`
    */
   async updateProfile(userId: string, updates: Partial<Profile>): Promise<boolean> {
     try {
       const payload: any = {
-        id: userId,
         updated_at: new Date().toISOString(),
       };
       if (updates.full_name !== undefined) payload.full_name = updates.full_name;
@@ -693,7 +733,7 @@ export const feedService = {
       if (updates.custom_status !== undefined) payload.custom_status = updates.custom_status;
       if (updates.nautical_presence !== undefined) payload.custom_status = updates.nautical_presence;
 
-      const { error } = await supabase.from('profiles').upsert(payload, { onConflict: 'id' });
+      const { error } = await supabase.from('profiles').update(payload).eq('id', userId);
       if (error) {
         console.warn('[FeedService] Profile update note:', error.message);
         return false;

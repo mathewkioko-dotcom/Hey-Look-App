@@ -54,6 +54,8 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
   const [isBlocked, setIsBlocked] = useState(false);
   const [biometricUnlocked, setBiometricUnlocked] = useState(false);
   const [isInFleet, setIsInFleet] = useState(false);
+  const [fleetStatus, setFleetStatus] = useState<'none' | 'pending' | 'accepted' | 'rejected' | 'ignored'>('none');
+  const [incomingRequest, setIncomingRequest] = useState(false);
   const [manifest, setManifest] = useState<{ name: string; avatar: string }[]>([]);
   const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
 
@@ -61,11 +63,21 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
     if (!currentUserId || !targetUser.id || currentUserId === targetUser.id) return;
     const { data: follow } = await supabase
       .from('follows')
-      .select('follower_id')
+      .select('follower_id, status')
       .eq('follower_id', currentUserId)
       .eq('following_id', targetUser.id)
       .maybeSingle();
-    setIsInFleet(Boolean(follow));
+    setFleetStatus(follow?.status || 'none');
+    setIsInFleet(follow?.status === 'accepted');
+
+    const { data: incoming } = await supabase
+      .from('follows')
+      .select('status')
+      .eq('follower_id', targetUser.id)
+      .eq('following_id', currentUserId)
+      .eq('status', 'pending')
+      .maybeSingle();
+    setIncomingRequest(Boolean(incoming));
 
     const { data: followedRows } = await supabase
       .from('follows')
@@ -90,16 +102,28 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
     setIsRelationshipLoading(true);
     const nextInFleet = !isInFleet;
     setIsInFleet(nextInFleet);
+    setFleetStatus(nextInFleet ? 'pending' : 'none');
     const result = nextInFleet
-      ? await supabase.from('follows').insert({ follower_id: currentUserId, following_id: targetUser.id })
+      ? await supabase.from('follows').upsert({ follower_id: currentUserId, following_id: targetUser.id, status: 'pending' }, { onConflict: 'follower_id,following_id' })
       : await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('following_id', targetUser.id);
     if (result.error) {
       setIsInFleet(!nextInFleet);
+      setFleetStatus(nextInFleet ? 'none' : 'accepted');
       onNotice(`Could not ${nextInFleet ? 'join the fleet' : 'leave the fleet'}`);
     } else {
-      onNotice(nextInFleet ? 'Joined Fleet' : 'Mutiny complete');
+      onNotice(nextInFleet ? 'Fleet request sent' : 'Mutiny complete');
     }
     setIsRelationshipLoading(false);
+  };
+
+  const respondToFleetRequest = async (status: 'accepted' | 'rejected' | 'ignored') => {
+    const { error } = await supabase.from('follows').update({ status }).eq('follower_id', targetUser.id).eq('following_id', currentUserId).eq('status', 'pending');
+    if (error) {
+      onNotice('Could not update fleet request');
+      return;
+    }
+    setIncomingRequest(false);
+    onNotice(status === 'accepted' ? 'Crew member accepted' : status === 'rejected' ? 'Fleet request rejected' : 'Fleet request ignored');
   };
 
   if (!isOpen) return null;
@@ -230,9 +254,9 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
                     <p className="text-[10px] text-slate-400">{isInFleet ? 'You are in this crew' : 'Join this person\'s fleet'}</p>
                   </div>
                 </div>
-                <button onClick={() => void toggleFleetMembership()} disabled={isRelationshipLoading || currentUserId === targetUser.id} className={`px-3 py-1 rounded-lg font-bold ${isInFleet ? 'bg-slate-800 text-slate-300' : 'bg-cyan-500 text-slate-950'} disabled:opacity-50`}>
-                  {isInFleet ? 'Mutiny' : 'Join Fleet'}
-                </button>
+                {incomingRequest ? <div className="flex gap-1"><button onClick={() => void respondToFleetRequest('accepted')} className="rounded-lg bg-emerald-500 px-2 py-1 font-bold text-slate-950">Accept</button><button onClick={() => void respondToFleetRequest('rejected')} className="rounded-lg bg-rose-500/20 px-2 py-1 font-bold text-rose-300">Reject</button><button onClick={() => void respondToFleetRequest('ignored')} className="rounded-lg bg-slate-800 px-2 py-1 font-bold text-slate-300">Ignore</button></div> : <button onClick={() => void toggleFleetMembership()} disabled={isRelationshipLoading || currentUserId === targetUser.id || fleetStatus === 'pending'} className={`px-3 py-1 rounded-lg font-bold ${isInFleet ? 'bg-slate-800 text-slate-300' : 'bg-cyan-500 text-slate-950'} disabled:opacity-50`}>
+                  {isInFleet ? 'Mutiny' : fleetStatus === 'pending' ? 'Request Sent' : 'Join Fleet'}
+                </button>}
               </div>
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
                 <div className="flex items-center justify-between mb-2"><p className="font-bold text-slate-200">The Manifest</p><span className="text-[10px] text-slate-500">{manifest.length} shown</span></div>

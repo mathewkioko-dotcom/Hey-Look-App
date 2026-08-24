@@ -175,6 +175,7 @@ export interface FeedPost {
 
 export interface ReelItem {
   id: string;
+  user_id?: string;
   author: {
     name: string;
     username: string;
@@ -187,6 +188,7 @@ export interface ReelItem {
   likes_count: number;
   comments_count: number;
   shares_count: number;
+  saves_count: number;
   is_liked: boolean;
 }
 

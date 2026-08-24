@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Heart,
@@ -15,10 +15,16 @@ import {
   Film,
   MoreVertical,
   Bookmark,
+  Pause,
+  Play,
+  Settings2,
 } from "lucide-react";
 import { ReelItem, Profile } from "../../types";
 import { feedService } from "../../services/feedService";
+import { fetchAllProfiles } from "../../services/chatService.profiles";
 import { ReelsMenuModal } from "../reels/ReelsMenuModal";
+import { sendMessage } from "../../services/chatService.messages";
+import { supabase } from "../../lib/supabase";
 
 interface ReelsTabProps {
   currentUser: Profile;
@@ -29,10 +35,20 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   const [reels, setReels] = useState<ReelItem[]>([]);
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
+  const [isPaused, setIsPaused] = useState(false);
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [isFastForwarding, setIsFastForwarding] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const longPressTimer = useRef<number | null>(null);
   const [showComments, setShowComments] = useState(false);
   const [savedReels, setSavedReels] = useState<Record<string, boolean>>({});
   const [reelComments, setReelComments] = useState<Record<string, string[]>>({});
   const [commentInput, setCommentInput] = useState("");
+  const [commentMedia, setCommentMedia] = useState("");
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareProfiles, setShareProfiles] = useState<Profile[]>([]);
+  const [profileToView, setProfileToView] = useState<Profile | null>(null);
+  const [mentionMatches, setMentionMatches] = useState<Profile[]>([]);
   const [doubleTapHeart, setDoubleTapHeart] = useState<{
     x: number;
     y: number;
@@ -66,10 +82,13 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   const currentReel = reels[activeReelIndex];
 
   const handleToggleLike = (reelId: string) => {
+    const reel = reels.find((item) => item.id === reelId);
+    if (!reel) return;
+    const nextLiked = !reel.is_liked;
     setReels((prev) =>
       prev.map((r) => {
         if (r.id === reelId) {
-          const newIsLiked = !r.is_liked;
+          const newIsLiked = nextLiked;
           return {
             ...r,
             is_liked: newIsLiked,
@@ -81,17 +100,51 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
         return r;
       }),
     );
+    void feedService.setReelLike(reelId, currentUser.id, nextLiked);
   };
 
   const handleShare = async () => {
     if (!currentReel) return;
+    setShareOpen(true);
+    const profiles = await fetchAllProfiles(currentUser.id);
+    setShareProfiles(profiles.filter((profile) => profile.id !== currentUser.id).slice(0, 12));
+  };
+
+  const shareReelWith = async (profile: Profile) => {
+    if (!currentReel) return;
     const shareText = `${currentReel.author.name}: ${currentReel.caption}`;
-    if (navigator.share) {
-      await navigator.share({ title: "HeyLook Reel", text: shareText, url: currentReel.video_url }).catch(() => undefined);
-    } else if (navigator.clipboard) {
-      await navigator.clipboard.writeText(currentReel.video_url);
-    }
+    await navigator.clipboard?.writeText(`${shareText}\n${currentReel.video_url}`);
+    await sendMessage({ sender_id: currentUser.id, receiver_id: profile.id, text: `🎬 Shared reel: ${shareText}\n${currentReel.video_url}`, type: "text", created_at: new Date().toISOString() });
+    setShareOpen(false);
     setReels((prev) => prev.map((reel) => reel.id === currentReel.id ? { ...reel, shares_count: reel.shares_count + 1 } : reel));
+    void feedService.recordReelShare(currentReel.id);
+  };
+
+  const togglePlayback = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (video.paused) {
+      void video.play();
+      setIsPaused(false);
+    } else {
+      video.pause();
+      setIsPaused(true);
+    }
+  };
+
+  const startFastForward = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = window.setTimeout(() => {
+      if (videoRef.current) videoRef.current.playbackRate = 2;
+      setIsFastForwarding(true);
+    }, 350);
+  };
+
+  const stopFastForward = () => {
+    if (longPressTimer.current) window.clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+    if (videoRef.current) videoRef.current.playbackRate = 1;
+    setIsFastForwarding(false);
   };
 
   const handleDoubleTap = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -107,8 +160,14 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
     setTimeout(() => setDoubleTapHeart(null), 900);
   };
 
-  const toggleFollow = (username: string) => {
-    setFollowingMap((prev) => ({ ...prev, [username]: !prev[username] }));
+  const toggleFollow = async (username: string) => {
+    if (!currentReel?.user_id || currentReel.user_id === currentUser.id) return;
+    const currentlyJoined = followingMap[username];
+    setFollowingMap((prev) => ({ ...prev, [username]: !currentlyJoined }));
+    const result = currentlyJoined
+      ? await supabase.from("follows").delete().eq("follower_id", currentUser.id).eq("following_id", currentReel.user_id)
+      : await supabase.from("follows").upsert({ follower_id: currentUser.id, following_id: currentReel.user_id, status: "pending" }, { onConflict: "follower_id,following_id" });
+    if (result.error) setFollowingMap((prev) => ({ ...prev, [username]: currentlyJoined }));
   };
 
   const handleUploadReelSubmit = async () => {
@@ -222,21 +281,30 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
         <>
           {/* Main Video Player */}
           <div
-            onClick={handleDoubleTap}
+            onClick={(event) => { if (!isFastForwarding) togglePlayback(); handleDoubleTap(event); }}
+            onPointerDown={startFastForward}
+            onPointerUp={stopFastForward}
+            onPointerLeave={stopFastForward}
             className="absolute inset-0 z-0 overflow-hidden cursor-pointer"
           >
             {currentReel && (
               <video
+                ref={videoRef}
                 key={currentReel.video_url}
                 src={currentReel.video_url}
                 poster={currentReel.poster_url}
                 autoPlay
-                loop
+                loop={!isAutoScroll}
                 muted={isMuted}
                 playsInline
+                onEnded={() => { if (isAutoScroll && reels.length > 1) setActiveReelIndex((prev) => (prev + 1) % reels.length); }}
                 className="w-full h-full object-cover"
               />
             )}
+
+            <div className="absolute left-1/2 top-1/2 z-20 -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+              {isFastForwarding ? <span className="rounded-full bg-black/60 px-3 py-2 text-xs font-bold">2× speed</span> : isPaused ? <Pause className="h-12 w-12 text-white/80" /> : null}
+            </div>
 
             {/* Double Tap Floating Heart */}
             <AnimatePresence>
@@ -263,6 +331,8 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
           {/* Right Sidebar Controls */}
           {currentReel && (
             <div className="absolute right-3 bottom-20 z-20 flex flex-col items-center gap-5">
+              <button onClick={() => setIsAutoScroll((value) => !value)} className="flex flex-col items-center gap-1" aria-label="Toggle automatic reel scrolling"><div className={`rounded-full p-2.5 ${isAutoScroll ? "bg-cyan-500 text-slate-950" : "bg-black/40 text-white"}`}><Settings2 className="h-5 w-5" /></div><span className="text-[10px] font-bold">Auto</span></button>
+              <button onClick={togglePlayback} className="flex flex-col items-center gap-1" aria-label={isPaused ? "Play reel" : "Pause reel"}><div className="rounded-full bg-black/40 p-2.5 text-white">{isPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}</div><span className="text-[10px] font-bold">{isPaused ? "Play" : "Pause"}</span></button>
               <button
                 onClick={() => handleToggleLike(currentReel.id)}
                 className="group flex flex-col items-center gap-1 cursor-pointer focus:outline-none"
@@ -284,7 +354,7 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
               </button>
 
               <button
-                onClick={() => setShowComments(true)}
+                onClick={() => { setShowComments(true); void feedService.fetchReelComments(currentReel.id).then((comments) => setReelComments((prev) => ({ ...prev, [currentReel.id]: comments }))); }}
                 className="flex flex-col items-center gap-1 cursor-pointer focus:outline-none"
               >
                 <div className="p-3 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-all">
@@ -305,14 +375,14 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
               </button>
 
               <button
-                onClick={() => setSavedReels((prev) => ({ ...prev, [currentReel.id]: !prev[currentReel.id] }))}
+                onClick={() => { const nextSaved = !savedReels[currentReel.id]; setSavedReels((prev) => ({ ...prev, [currentReel.id]: nextSaved })); setReels((prev) => prev.map((reel) => reel.id === currentReel.id ? { ...reel, saves_count: Math.max(0, reel.saves_count + (nextSaved ? 1 : -1)) } : reel)); void feedService.setReelSave(currentReel.id, currentUser.id, nextSaved); }}
                 className="flex flex-col items-center gap-1 cursor-pointer focus:outline-none"
                 aria-label={savedReels[currentReel.id] ? "Remove from saved reels" : "Save reel"}
               >
                 <div className={`p-3 rounded-full backdrop-blur-md transition-all ${savedReels[currentReel.id] ? "bg-amber-400 text-slate-950" : "bg-black/40 hover:bg-black/60 text-white"}`}>
                   <Bookmark className="w-6 h-6" fill={savedReels[currentReel.id] ? "currentColor" : "none"} />
                 </div>
-                <span className="text-[10px] font-bold">{savedReels[currentReel.id] ? "Saved" : "Save"}</span>
+                <span className="text-[10px] font-bold">{currentReel.saves_count} {savedReels[currentReel.id] ? "Saved" : "Saves"}</span>
               </button>
 
 <motion.div
@@ -343,17 +413,19 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
           {currentReel && (
             <div className="relative z-20 p-5 pr-16 space-y-3 mt-auto">
               <div className="flex items-center gap-2">
-                <img
-                  src={currentReel.author.avatar}
-                  alt={currentReel.author.name}
-                  className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
-                />
-                <span className="font-bold text-sm">
+                <button onClick={() => setProfileToView({ id: currentReel.author.username, username: currentReel.author.username, full_name: currentReel.author.name, avatar_url: currentReel.author.avatar })} className="shrink-0">
+                  <img
+                    src={currentReel.author.avatar}
+                    alt={currentReel.author.name}
+                    className="w-10 h-10 rounded-full object-cover border-2 border-pink-500"
+                  />
+                </button>
+                <button onClick={() => setProfileToView({ id: currentReel.author.username, username: currentReel.author.username, full_name: currentReel.author.name, avatar_url: currentReel.author.avatar })} className="font-bold text-sm">
                   @{currentReel.author.username}
-                </span>
+                </button>
 
                 <button
-                  onClick={() => toggleFollow(currentReel.author.username)}
+                  onClick={() => void toggleFollow(currentReel.author.username)}
                   className={`ml-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
                     followingMap[currentReel.author.username]
                       ? "bg-slate-800 text-slate-300"
@@ -379,7 +451,7 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
 
           {/* Vertical Reel Switch Controls */}
           {reels.length > 1 && (
-            <div className="absolute top-1/2 right-2 -translate-y-1/2 z-20 flex flex-col gap-2">
+            <div className="hidden sm:flex absolute top-1/2 right-2 -translate-y-1/2 z-20 flex-col gap-2">
               <button
                 onClick={() =>
                   setActiveReelIndex((prev) => Math.max(0, prev - 1))
@@ -516,7 +588,21 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
             <motion.div className="w-full max-w-md max-h-[65vh] overflow-y-auto rounded-t-3xl bg-slate-900 p-5 text-white" onClick={(event) => event.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }}>
               <div className="flex items-center justify-between mb-4"><h3 className="font-bold">Crew Replies</h3><button onClick={() => setShowComments(false)} aria-label="Close comments"><X className="w-5 h-5" /></button></div>
               <div className="space-y-2 mb-4">{(reelComments[currentReel.id] || []).map((comment, index) => <p key={`${comment}-${index}`} className="p-2 rounded-xl bg-slate-800 text-xs">{comment}</p>)}{!(reelComments[currentReel.id] || []).length && <p className="text-xs text-slate-400">No replies yet. Start the conversation.</p>}</div>
-              <div className="flex gap-2"><input value={commentInput} onChange={(event) => setCommentInput(event.target.value)} placeholder="Write a reply..." className="min-w-0 flex-1 rounded-xl bg-slate-800 px-3 py-2 text-xs outline-none" /><button onClick={() => { if (!commentInput.trim()) return; setReelComments((prev) => ({ ...prev, [currentReel.id]: [...(prev[currentReel.id] || []), commentInput.trim()] })); setCommentInput(""); }} className="rounded-xl bg-pink-500 px-3 text-xs font-bold">Reply</button></div>
+              <div className="flex gap-2"><input value={commentInput} onChange={(event) => { const value = event.target.value; setCommentInput(value); const match = value.match(/@([\w]*)$/); if (match) void fetchAllProfiles(currentUser.id).then((profiles) => setMentionMatches(profiles.filter((profile) => profile.full_name.toLowerCase().includes(match[1].toLowerCase()) || profile.username.toLowerCase().includes(match[1].toLowerCase())).slice(0, 5))); else setMentionMatches([]); }} placeholder="Write a reply..." className="min-w-0 flex-1 rounded-xl bg-slate-800 px-3 py-2 text-xs outline-none" /><button onClick={() => { if (!commentInput.trim() && !commentMedia) return; const label = commentInput.trim() || "Media reply"; void feedService.addReelComment(currentReel.id, currentUser.id, label, commentMedia).then((sent) => { if (!sent) return; setReelComments((prev) => ({ ...prev, [currentReel.id]: [...(prev[currentReel.id] || []), commentMedia ? `${label} [media]` : label] })); setReels((prev) => prev.map((reel) => reel.id === currentReel.id ? { ...reel, comments_count: reel.comments_count + 1 } : reel)); setCommentInput(""); setCommentMedia(""); }); }} className="rounded-xl bg-pink-500 px-3 text-xs font-bold">Reply</button></div>
+              {mentionMatches.length > 0 && <div className="flex flex-wrap gap-1">{mentionMatches.map((profile) => <button key={profile.id} onClick={() => { setCommentInput((value) => value.replace(/@([\w]*)$/, `@${profile.username} `)); setMentionMatches([]); }} className="rounded-lg bg-slate-800 px-2 py-1 text-[10px]">@{profile.username}</button>)}</div>}
+              <div className="flex items-center gap-2 mt-2"><label className="rounded-xl border border-slate-700 px-3 py-2 text-[10px] cursor-pointer">Add image/GIF<input type="file" accept="image/*,.gif" className="hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file && file.size <= 2 * 1024 * 1024) { const reader = new FileReader(); reader.onload = () => setCommentMedia(String(reader.result || "")); reader.readAsDataURL(file); } }} /></label><button onClick={() => setCommentMedia("https://media.giphy.com/media/3o7TKsQY8z7Qf1mZfG/giphy.gif")} className="rounded-xl border border-slate-700 px-3 py-2 text-[10px]">GIF</button>{commentMedia && <span className="text-[10px] text-pink-300">Media attached</span>}</div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      {profileToView && <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={() => setProfileToView(null)}><div className="w-full max-w-sm rounded-3xl bg-slate-900 p-6 text-center" onClick={(event) => event.stopPropagation()}><img src={profileToView.avatar_url} alt={profileToView.full_name} className="mx-auto h-20 w-20 rounded-full object-cover" /><h3 className="mt-3 font-bold text-white">{profileToView.full_name}</h3><p className="text-xs text-slate-400">@{profileToView.username}</p><button onClick={() => setProfileToView(null)} className="mt-4 rounded-xl bg-pink-500 px-4 py-2 text-xs font-bold">Close Profile</button></div></div>}
+      <AnimatePresence>
+        {shareOpen && currentReel && (
+          <motion.div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/70" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShareOpen(false)}>
+            <motion.div className="w-full max-w-md rounded-t-3xl bg-slate-900 p-5 text-white" onClick={(event) => event.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }}>
+              <div className="flex items-center justify-between mb-4"><h3 className="font-bold">Share with crew</h3><button onClick={() => setShareOpen(false)}><X className="w-5 h-5" /></button></div>
+              <div className="grid grid-cols-4 gap-3">{shareProfiles.map((profile) => <button key={profile.id} onClick={() => void shareReelWith(profile)} className="flex flex-col items-center gap-1"><img src={profile.avatar_url} alt={profile.full_name} className="w-12 h-12 rounded-full object-cover" /><span className="w-full truncate text-[10px]">{profile.full_name}</span></button>)}</div>
+              {!shareProfiles.length && <p className="text-xs text-slate-400">No other crew members found.</p>}
             </motion.div>
           </motion.div>
         )}

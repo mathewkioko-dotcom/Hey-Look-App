@@ -227,8 +227,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
 
   const saveProfile = async (updates: Partial<Profile>) => {
     onUpdateProfile(updates);
-    await feedService.updateProfile(currentUser.id, updates);
-    showToast("Profile saved ✓");
+    const saved = await feedService.updateProfile(currentUser.id, updates);
+    showToast(saved ? "Profile saved ✓" : "Profile could not be saved");
   };
 
   const handleAvatarFile = async (file?: File) => {

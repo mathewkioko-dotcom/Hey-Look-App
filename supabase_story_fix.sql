@@ -3,6 +3,17 @@
 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
 
+ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can read profiles" ON public.profiles;
+CREATE POLICY "Users can read profiles" ON public.profiles
+  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can insert their own profile" ON public.profiles;
+CREATE POLICY "Users can insert their own profile" ON public.profiles
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = id);
+DROP POLICY IF EXISTS "Users can update own profile" ON public.profiles;
+CREATE POLICY "Users can update own profile" ON public.profiles
+  FOR UPDATE TO authenticated USING (auth.uid() = id) WITH CHECK (auth.uid() = id);
+
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('story-media', 'story-media', true)
 ON CONFLICT (id) DO NOTHING;
@@ -118,6 +129,7 @@ CREATE TABLE IF NOT EXISTS public.reels (
 );
 
 ALTER TABLE public.reels ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.reels ADD COLUMN IF NOT EXISTS saves_count INTEGER NOT NULL DEFAULT 0;
 DROP POLICY IF EXISTS "Anyone can read reels" ON public.reels;
 CREATE POLICY "Anyone can read reels" ON public.reels
   FOR SELECT TO authenticated USING (true);
@@ -130,6 +142,51 @@ CREATE POLICY "Users can update own reels" ON public.reels
 DROP POLICY IF EXISTS "Users can delete own reels" ON public.reels;
 CREATE POLICY "Users can delete own reels" ON public.reels
   FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+CREATE TABLE IF NOT EXISTS public.reel_saves (
+  reel_id UUID NOT NULL REFERENCES public.reels(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (reel_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.reel_likes (
+  reel_id UUID NOT NULL REFERENCES public.reels(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (reel_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.reel_comments (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  reel_id UUID NOT NULL REFERENCES public.reels(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  text TEXT NOT NULL DEFAULT '',
+  media_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.reel_saves ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can view reel saves" ON public.reel_saves;
+CREATE POLICY "Authenticated users can view reel saves" ON public.reel_saves FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can save reels" ON public.reel_saves;
+CREATE POLICY "Users can save reels" ON public.reel_saves FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can unsave reels" ON public.reel_saves;
+CREATE POLICY "Users can unsave reels" ON public.reel_saves FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+ALTER TABLE public.reel_likes ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can view reel likes" ON public.reel_likes;
+CREATE POLICY "Authenticated users can view reel likes" ON public.reel_likes FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can like reels" ON public.reel_likes;
+CREATE POLICY "Users can like reels" ON public.reel_likes FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can unlike reels" ON public.reel_likes;
+CREATE POLICY "Users can unlike reels" ON public.reel_likes FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+ALTER TABLE public.reel_comments ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can view reel comments" ON public.reel_comments;
+CREATE POLICY "Authenticated users can view reel comments" ON public.reel_comments FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can comment on reels" ON public.reel_comments;
+CREATE POLICY "Users can comment on reels" ON public.reel_comments FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
 
 -- Enable database INSERT events for the app's real-time notifications.
 DO $$
@@ -154,6 +211,10 @@ CREATE TABLE IF NOT EXISTS public.follows (
   CONSTRAINT follows_not_self CHECK (follower_id <> following_id)
 );
 
+ALTER TABLE public.follows ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE public.follows DROP CONSTRAINT IF EXISTS follows_status_check;
+ALTER TABLE public.follows ADD CONSTRAINT follows_status_check CHECK (status IN ('pending', 'accepted', 'rejected', 'ignored'));
+
 ALTER TABLE public.follows ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Authenticated users can view fleet memberships" ON public.follows;
 CREATE POLICY "Authenticated users can view fleet memberships" ON public.follows
@@ -164,6 +225,10 @@ CREATE POLICY "Users can join a fleet" ON public.follows
 DROP POLICY IF EXISTS "Users can mutiny from a fleet" ON public.follows;
 CREATE POLICY "Users can mutiny from a fleet" ON public.follows
   FOR DELETE TO authenticated USING (auth.uid() = follower_id);
+
+DROP POLICY IF EXISTS "Users can respond to fleet requests" ON public.follows;
+CREATE POLICY "Users can respond to fleet requests" ON public.follows
+  FOR UPDATE TO authenticated USING (auth.uid() = following_id) WITH CHECK (auth.uid() = following_id);
 
 -- Story reactions and unique viewers.
 CREATE TABLE IF NOT EXISTS public.story_reactions (
