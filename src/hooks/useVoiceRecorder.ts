@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabase";
 
 export interface VoiceRecordingResult {
-  /** Public URL of the uploaded audio clip (or object URL fallback). */
+  /** Public URL of the uploaded audio clip. */
   audioUrl: string;
   /** Human-readable duration string like "0:08". */
   duration: string;
@@ -35,6 +35,7 @@ export function useVoiceRecorder(currentUserId?: string) {
   const streamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const stopPromiseRef = useRef<Promise<VoiceRecordingResult | null> | null>(null);
 
   // Cleanup tracks + timer on unmount
   useEffect(() => {
@@ -56,17 +57,18 @@ export function useVoiceRecorder(currentUserId?: string) {
         setError("Microphone not supported in this browser.");
         return false;
       }
+      if (typeof MediaRecorder === "undefined") {
+        setError("Voice recording is not supported in this browser.");
+        return false;
+      }
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
       audioChunksRef.current = [];
 
-      let options: MediaRecorderOptions = { audioBitsPerSecond: 64000 };
-      if (MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) {
-        options = { ...options, mimeType: "audio/webm;codecs=opus" };
-      } else if (MediaRecorder.isTypeSupported("audio/webm")) {
-        options = { ...options, mimeType: "audio/webm" };
-      }
+      const options: MediaRecorderOptions = { audioBitsPerSecond: 64000 };
+      const supportedMimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"].find((type) => MediaRecorder.isTypeSupported(type));
+      if (supportedMimeType) options.mimeType = supportedMimeType;
 
       const recorder = new MediaRecorder(stream, options);
       mediaRecorderRef.current = recorder;
@@ -102,8 +104,9 @@ export function useVoiceRecorder(currentUserId?: string) {
   }, []);
 
   /** Stop recording, assemble the blob, upload to Supabase, return result. */
-  const stopRecording =
-    useCallback(async (): Promise<VoiceRecordingResult | null> => {
+  const stopRecording = useCallback(async (): Promise<VoiceRecordingResult | null> => {
+      if (stopPromiseRef.current) return stopPromiseRef.current;
+      const stopTask = (async (): Promise<VoiceRecordingResult | null> => {
       const recorder = mediaRecorderRef.current;
       if (!recorder || recorder.state === "inactive") {
         stopTracks();
@@ -180,6 +183,13 @@ export function useVoiceRecorder(currentUserId?: string) {
         blob,
         previewUrl,
       };
+      })();
+      stopPromiseRef.current = stopTask;
+      try {
+        return await stopTask;
+      } finally {
+        stopPromiseRef.current = null;
+      }
     }, [currentUserId, elapsedSeconds, stopTracks]);
 
   /** Cancel the current recording and discard the audio. */

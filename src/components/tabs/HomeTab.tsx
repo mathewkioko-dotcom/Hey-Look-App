@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus } from "lucide-react";
+import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus, Pause, Play } from "lucide-react";
 import { FeedPost, Profile } from "../../types";
 import { feedService, StoryItem } from "../../services/feedService";
 import { supabase } from "../../lib/supabase";
@@ -24,6 +24,13 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
   const [isPublishing, setIsPublishing] = useState(false);
   const [showStoryComposer, setShowStoryComposer] = useState(false);
   const [storyUrl, setStoryUrl] = useState("");
+  const [storyFile, setStoryFile] = useState<File | null>(null);
+  const [storyGroupsIndex, setStoryGroupsIndex] = useState(0);
+  const [storyItemIndex, setStoryItemIndex] = useState(0);
+  const [storyPaused, setStoryPaused] = useState(false);
+  const [profileToView, setProfileToView] = useState<Profile | null>(null);
+  const [storyLiked, setStoryLiked] = useState<Record<string, boolean>>({});
+  const [storyReply, setStoryReply] = useState("");
 
   const loadHome = async () => {
     setLoading(true);
@@ -45,6 +52,28 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
 
   useEffect(() => { void loadHome(); }, [currentUser.id]);
 
+  const storyGroups = Array.from(stories.reduce((groups, story) => {
+    const group = groups.get(story.user_id) || [];
+    group.push(story);
+    groups.set(story.user_id, group);
+    return groups;
+  }, new Map<string, StoryItem[]>()).values());
+  const viewedStory = storyGroups[storyGroupsIndex]?.[storyItemIndex] || null;
+
+  const moveStory = (direction: number) => {
+    if (!viewedStory) return;
+    const nextItem = storyItemIndex + direction;
+    if (nextItem >= 0 && nextItem < storyGroups[storyGroupsIndex].length) setStoryItemIndex(nextItem);
+    else if (direction > 0 && storyGroups.length > 1) { const nextGroup = (storyGroupsIndex + 1) % storyGroups.length; setStoryGroupsIndex(nextGroup); setStoryItemIndex(0); }
+    else if (direction < 0 && storyGroups.length > 1) { const nextGroup = (storyGroupsIndex - 1 + storyGroups.length) % storyGroups.length; setStoryGroupsIndex(nextGroup); setStoryItemIndex(storyGroups[nextGroup].length - 1); }
+  };
+
+  const openStoryGroup = (index: number) => {
+    setStoryGroupsIndex(index);
+    setStoryItemIndex(0);
+    setStoryPaused(false);
+    setActiveStory(storyGroups[index]?.[0] || null);
+  };
   const toggleLike = async (post: FeedPost) => {
     const nextLiked = !post.is_liked;
     setPosts((items) => items.map((item) => item.id === post.id ? { ...item, is_liked: nextLiked, likes_count: Math.max(0, item.likes_count + (nextLiked ? 1 : -1)) } : item));
@@ -94,12 +123,13 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
           <span className="absolute left-12 top-9 flex h-6 w-6 items-center justify-center rounded-full border-2 border-slate-950 bg-cyan-500 text-slate-950"><Plus className="h-4 w-4" /></span>
           <span className="w-full truncate text-[10px] text-slate-300">Your story</span>
         </button>
-        {stories.filter((story) => story.user_id !== currentUser.id).map((story) => (
-          <button key={story.id} onClick={() => setActiveStory(story)} className="flex w-20 shrink-0 flex-col items-center gap-1 text-center">
+        {storyGroups.filter((group) => group[0].user_id !== currentUser.id).map((group) => {
+          const story = group[0];
+          return <button key={story.user_id} onClick={() => openStoryGroup(storyGroups.indexOf(group))} className="flex w-20 shrink-0 flex-col items-center gap-1 text-center">
             <img src={story.user_avatar} alt={story.user_name} className="h-14 w-14 rounded-full border-2 border-pink-500 object-cover" />
             <span className="w-full truncate text-[10px] text-slate-300">{story.user_name}</span>
-          </button>
-        ))}
+          </button>;
+        })}
       </section>
 
       <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
@@ -128,12 +158,13 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
 
       <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
         <div className="mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-cyan-400" /><h3 className="text-sm font-bold text-slate-100">Other users</h3></div>
-        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">{otherUsers.map((profile) => <button key={profile.id} className="flex min-w-0 flex-col items-center gap-1" onClick={() => setActiveStory({ id: `profile-${profile.id}`, user_id: profile.id, user_name: profile.full_name, user_avatar: profile.avatar_url, media_url: profile.avatar_url, created_at: new Date().toISOString() })}><img src={profile.avatar_url} alt={profile.full_name} className="h-12 w-12 rounded-full object-cover ring-2 ring-slate-700" /><span className="w-full truncate text-[10px] text-slate-300">{profile.full_name}</span></button>)}</div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{otherUsers.map((profile) => <div key={profile.id} className="flex min-w-0 items-center gap-2"><button className="min-w-0" onClick={() => setProfileToView(profile)}><img src={profile.avatar_url} alt={profile.full_name} className="h-11 w-11 rounded-full object-cover ring-2 ring-slate-700" /></button><div className="min-w-0 flex-1"><button onClick={() => setProfileToView(profile)} className="block w-full truncate text-left text-[10px] font-bold text-slate-300">{profile.full_name}</button><button onClick={() => { const accepted = joinedFleet[profile.id]; setJoinedFleet((items) => ({ ...items, [profile.id]: !accepted })); void (accepted ? supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', profile.id) : supabase.from('follows').insert({ follower_id: currentUser.id, following_id: profile.id, status: 'pending' })); }} className="text-[10px] font-bold text-cyan-400">{joinedFleet[profile.id] ? 'Mutiny' : 'Join Fleet'}</button></div></div>)}</div>
         {!otherUsers.length && <p className="text-xs text-slate-500">No other users available yet.</p>}
       </section>
 
-      {activeStory && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" onClick={() => setActiveStory(null)}><div className="relative h-[75vh] w-full max-w-sm overflow-hidden rounded-3xl bg-slate-950" onClick={(event) => event.stopPropagation()}><button onClick={() => setActiveStory(null)} className="absolute right-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white"><X className="h-5 w-5" /></button><img src={activeStory.media_url || activeStory.user_avatar} alt={activeStory.user_name} className="h-full w-full object-cover" /><div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 p-4 pt-16"><p className="text-sm font-bold text-white">{activeStory.user_name}</p><p className="text-[10px] text-slate-300">{new Date(activeStory.created_at).toLocaleString()}</p></div></div></div>}
-      {showStoryComposer && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowStoryComposer(false)}><div className="w-full max-w-sm space-y-4 rounded-3xl bg-slate-900 p-5" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h3 className="font-bold text-white">Add Story</h3><button onClick={() => setShowStoryComposer(false)} className="text-slate-400"><X className="h-5 w-5" /></button></div><input value={storyUrl} onChange={(event) => setStoryUrl(event.target.value)} placeholder="Paste story image URL..." className="w-full rounded-xl bg-slate-950 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => { if (!storyUrl.trim() || isPublishing) return; setIsPublishing(true); void feedService.createStory(currentUser.id, storyUrl.trim()).then((success) => { if (success) { setStoryUrl(""); setShowStoryComposer(false); void loadHome(); } setIsPublishing(false); }); }} disabled={!storyUrl.trim() || isPublishing} className="w-full rounded-xl bg-cyan-500 py-3 text-xs font-bold text-slate-950 disabled:opacity-40">{isPublishing ? "Publishing..." : "Publish Story"}</button></div></div>}
+      {activeStory && viewedStory && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" onClick={() => setActiveStory(null)}><div className="relative h-[75vh] w-full max-w-sm overflow-hidden rounded-3xl bg-slate-950" onClick={(event) => event.stopPropagation()}><button onClick={() => setActiveStory(null)} className="absolute right-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white"><X className="h-5 w-5" /></button><button onClick={() => moveStory(-1)} className="absolute left-2 top-1/2 z-10 rounded-full bg-black/50 p-3 text-white">‹</button><button onClick={() => moveStory(1)} className="absolute right-2 top-1/2 z-10 rounded-full bg-black/50 p-3 text-white">›</button>{viewedStory.media_url?.startsWith('data:video') || viewedStory.media_url?.match(/\.(mp4|webm|mov)(\?|$)/i) ? <video src={viewedStory.media_url} autoPlay={!storyPaused} controls playsInline className="h-full w-full object-cover" /> : <img src={viewedStory.media_url || viewedStory.user_avatar} alt={viewedStory.user_name} className="h-full w-full object-cover" />}<button onClick={() => setStoryPaused((paused) => !paused)} className="absolute bottom-36 left-1/2 z-10 -translate-x-1/2 rounded-full bg-black/60 p-3 text-white" aria-label={storyPaused ? 'Play story' : 'Pause story'}>{storyPaused ? <Play className="h-5 w-5" /> : <Pause className="h-5 w-5" />}</button><div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 p-4 pt-16"><div className="flex items-center gap-2"><button onClick={() => { const next = !storyLiked[viewedStory.id]; setStoryLiked((items) => ({ ...items, [viewedStory.id]: next })); void feedService.setStoryReaction(viewedStory.id, currentUser.id, next ? '❤️' : null); }} className="rounded-xl bg-black/50 px-3 py-2 text-xs font-bold">{storyLiked[viewedStory.id] ? 'Liked ❤️' : 'Like 🤍'}</button>{['👍', '😂', '🔥'].map((emoji) => <button key={emoji} onClick={() => void feedService.setStoryReaction(viewedStory.id, currentUser.id, emoji)} className="rounded-xl bg-black/50 px-2 py-2 text-sm">{emoji}</button>)}</div><div className="mt-2 flex gap-2"><input value={storyReply} onChange={(event) => setStoryReply(event.target.value)} placeholder="Reply to story..." className="min-w-0 flex-1 rounded-xl bg-black/50 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => { if (!storyReply.trim()) return; void feedService.sendStoryReply(viewedStory.id, currentUser.id, storyReply.trim()).then((sent) => { if (sent) setStoryReply(''); }); }} className="rounded-xl bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950">Reply</button></div><p className="mt-2 text-sm font-bold text-white">{viewedStory.user_name}</p><p className="text-[10px] text-slate-300">{new Date(viewedStory.created_at).toLocaleString()}</p></div></div></div>}
+      {showStoryComposer && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowStoryComposer(false)}><div className="w-full max-w-sm space-y-4 rounded-3xl bg-slate-900 p-5" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h3 className="font-bold text-white">Add Story</h3><button onClick={() => setShowStoryComposer(false)} className="text-slate-400"><X className="h-5 w-5" /></button></div><input type="file" accept="image/*,video/*" onChange={(event) => { const file = event.target.files?.[0]; if (!file || file.size > 50 * 1024 * 1024) return; setStoryFile(file); const reader = new FileReader(); reader.onload = () => setStoryUrl(String(reader.result || '')); reader.readAsDataURL(file); }} className="w-full text-xs text-white" /><input value={storyUrl.startsWith('data:') ? '' : storyUrl} onChange={(event) => setStoryUrl(event.target.value)} placeholder="Or paste story media URL..." className="w-full rounded-xl bg-slate-950 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => { if (!storyUrl.trim() || isPublishing) return; setIsPublishing(true); void feedService.createStory(currentUser.id, storyUrl.trim()).then((success) => { if (success) { setStoryUrl(''); setStoryFile(null); setShowStoryComposer(false); void loadHome(); } setIsPublishing(false); }); }} disabled={!storyUrl.trim() || isPublishing} className="w-full rounded-xl bg-cyan-500 py-3 text-xs font-bold text-slate-950 disabled:opacity-40">{isPublishing ? "Publishing..." : "Publish Story"}</button></div></div>}
+      {profileToView && <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/80 p-4" onClick={() => setProfileToView(null)}><div className="w-full max-w-sm rounded-3xl bg-slate-900 p-6 text-center" onClick={(event) => event.stopPropagation()}><img src={profileToView.avatar_url} alt={profileToView.full_name} className="mx-auto h-20 w-20 rounded-full object-cover" /><h3 className="mt-3 font-bold text-white">{profileToView.full_name}</h3><p className="text-xs text-slate-400">@{profileToView.username}</p><button onClick={() => setProfileToView(null)} className="mt-4 rounded-xl bg-cyan-500 px-4 py-2 text-xs font-bold text-slate-950">Close Profile</button></div></div>}
     </div>
   );
 };

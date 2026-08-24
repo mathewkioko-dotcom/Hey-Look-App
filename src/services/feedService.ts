@@ -467,14 +467,14 @@ export const feedService = {
    */
   async uploadStoryMedia(userId: string, mediaUrl: string): Promise<string> {
     try {
-      if (!mediaUrl || !mediaUrl.startsWith('data:image/')) {
+      if (!mediaUrl || !mediaUrl.startsWith('data:')) {
         return mediaUrl;
       }
 
       const response = await fetch(mediaUrl);
       const blob = await response.blob();
       const mimeType = blob.type || 'image/jpeg';
-      const fileExt = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+      const fileExt = mimeType.includes('video') ? 'mp4' : mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
       const filePath = `story-media/${userId}/${Date.now()}.${fileExt}`;
 
       const { data, error } = await supabase.storage
@@ -528,7 +528,7 @@ export const feedService = {
   },
 
   async sendStoryReply(storyId: string, senderId: string, text: string): Promise<boolean> {
-    const { data: story, error } = await supabase.from('stories').select('user_id').eq('id', storyId).single();
+    const { data: story, error } = await supabase.from('stories').select('user_id, media_url').eq('id', storyId).single();
     if (error || !story || story.user_id === senderId) return false;
     try {
       await sendMessage({
@@ -536,6 +536,7 @@ export const feedService = {
         receiver_id: story.user_id,
         text: `💬 Story reply: ${text}`,
         type: 'text',
+        metadata: { story_id: storyId, story_media_url: story.media_url },
         created_at: new Date().toISOString(),
       });
       return true;

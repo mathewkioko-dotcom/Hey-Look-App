@@ -33,6 +33,7 @@ type PrivacyView =
   | "hub"
   | "lastAnchored"
   | "profilePhoto"
+  | "storyVisibility"
   | "readReceipts"
   | "groupAdd"
   | "blockedContacts"
@@ -126,6 +127,7 @@ export const PrivacyCenter: React.FC<PrivacyCenterProps> = ({
 
   // Profile Photo Visibility
   const [photoVisibility, setPhotoVisibility] = useState("Everyone");
+  const [storyVisibility, setStoryVisibility] = useState("Everyone");
   const [photoExclusions, setPhotoExclusions] = useState<string[]>([]);
 
   // Read Receipts
@@ -313,11 +315,19 @@ export const PrivacyCenter: React.FC<PrivacyCenterProps> = ({
         </div>
       )}
       <button
-        onClick={() => showToast("Photo visibility saved")}
+        onClick={async () => { if (currentUserId) await supabase.from("profiles").update({ profile_photo_visibility: photoVisibility }).eq("id", currentUserId); showToast("Photo visibility saved"); }}
         className="w-full py-3 rounded-2xl bg-indigo-500 text-white font-extrabold hover:bg-indigo-400 transition-colors cursor-pointer"
       >
         Save
       </button>
+    </div>
+  );
+
+  const renderStoryVisibility = () => (
+    <div className="space-y-4">
+      <Header title="Story Visibility" subtitle="Who can see your stories?" color="text-pink-400" bg="bg-pink-500/20 border-pink-500/30" icon={<Eye className="w-6 h-6" />} onBack={() => setView("hub")} />
+      <div className="space-y-2">{["Everyone", "Contacts Only", "Nobody"].map((option) => <button key={option} onClick={() => setStoryVisibility(option)} className={`w-full flex items-center justify-between p-3 rounded-xl border ${storyVisibility === option ? "border-pink-500/60 bg-pink-500/10" : "border-slate-700 bg-slate-800/50"}`}><span className="text-xs text-slate-200">{option}</span>{storyVisibility === option && <CheckCircle2 className="h-4 w-4 text-pink-400" />}</button>)}</div>
+      <button onClick={async () => { if (currentUserId) await supabase.from("profiles").update({ story_visibility: storyVisibility }).eq("id", currentUserId); showToast("Story visibility saved"); }} className="w-full rounded-2xl bg-pink-500 py-3 font-extrabold text-white">Save</button>
     </div>
   );
 
@@ -569,10 +579,19 @@ export const PrivacyCenter: React.FC<PrivacyCenterProps> = ({
                 </p>
               </div>
               <button
-                onClick={() => {
-                  setBlockedContacts(
-                    blockedContacts.filter((x) => x.id !== c.id),
-                  );
+                onClick={async () => {
+                  if (currentUserId) {
+                    const { error } = await supabase
+                      .from("user_blocks")
+                      .delete()
+                      .eq("blocker_id", currentUserId)
+                      .eq("blocked_id", c.id);
+                    if (error && error.code !== "22P02") {
+                      showToast("Could not unblock user");
+                      return;
+                    }
+                  }
+                  setBlockedContacts((contacts) => contacts.filter((x) => x.id !== c.id));
                   showToast(`${c.name} unblocked`);
                 }}
                 className="px-3 py-1.5 rounded-lg bg-rose-500/20 text-rose-300 text-[10px] font-bold hover:bg-rose-500/30 cursor-pointer"
@@ -1187,6 +1206,12 @@ export const PrivacyCenter: React.FC<PrivacyCenterProps> = ({
             grad: "from-indigo-500/20 to-violet-500/10 border-indigo-500/30 text-indigo-400",
           },
           {
+            k: "storyVisibility" as const,
+            label: "Story Visibility",
+            icon: <Eye className="w-5 h-5" />,
+            grad: "from-pink-500/20 to-rose-500/10 border-pink-500/30 text-pink-400",
+          },
+          {
             k: "readReceipts" as const,
             label: "Read Receipts",
             icon: <EyeOff className="w-5 h-5" />,
@@ -1290,6 +1315,7 @@ export const PrivacyCenter: React.FC<PrivacyCenterProps> = ({
             {view === "hub" && renderHub()}
             {view === "lastAnchored" && renderLastAnchored()}
             {view === "profilePhoto" && renderProfilePhoto()}
+            {view === "storyVisibility" && renderStoryVisibility()}
             {view === "readReceipts" && renderReadReceipts()}
             {view === "groupAdd" && renderGroupAdd()}
             {view === "blockedContacts" && renderBlockedContacts()}

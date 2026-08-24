@@ -602,9 +602,8 @@ const caller =
     };
   }, []);
 
-  // Helper to obtain media stream with graceful fallback for sandboxed/no-mic
-  // environments. Explicitly requests video + audio with camera permission
-  // handling baked in.
+  // Request real microphone/camera media. Calls must not appear connected with
+  // a synthetic silent track when device permission or hardware is unavailable.
   const getMediaStreamWithFallback = async (
     type: CallType,
   ): Promise<MediaStream> => {
@@ -638,23 +637,7 @@ const caller =
       }
     }
 
-    // Fallback: create a dummy AudioContext silent audio track so call workflow proceeds cleanly
-    try {
-      const AudioCtx =
-        window.AudioContext || (window as any).webkitAudioContext;
-      if (AudioCtx) {
-        const ctx = new AudioCtx();
-        const osc = ctx.createOscillator();
-        const dst = ctx.createMediaStreamDestination();
-        osc.connect(dst);
-        osc.start();
-        return dst.stream;
-      }
-    } catch (synthErr) {
-      console.warn("[WebRTC] Could not create synthetic stream:", synthErr);
-    }
-
-    return new MediaStream();
+    throw new Error("Microphone or camera permission is required for calls.");
   };
 
   // Method 1: Start outgoing call

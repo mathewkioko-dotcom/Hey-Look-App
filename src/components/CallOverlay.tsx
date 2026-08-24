@@ -52,6 +52,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 }) => {
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Attach local stream to local video element
   useEffect(() => {
@@ -66,6 +67,13 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
       remoteVideoRef.current.srcObject = remoteStream;
     }
   }, [remoteStream]);
+
+  useEffect(() => {
+    if (remoteAudioRef.current && remoteStream && callType === "audio") {
+      remoteAudioRef.current.srcObject = remoteStream;
+      void remoteAudioRef.current.play().catch(() => undefined);
+    }
+  }, [remoteStream, callType]);
 
   const formatDuration = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -183,6 +191,7 @@ export const CallOverlay: React.FC<CallOverlayProps> = ({
 
             {/* Video Stage / Voice Stage */}
             <div className="relative flex-1 w-full h-full bg-slate-900 flex items-center justify-center overflow-hidden">
+              <audio ref={remoteAudioRef} autoPlay playsInline />
               {/* Remote Stream Video */}
               {callType === "video" && remoteStream ? (
                 <video

@@ -48,6 +48,7 @@ interface ChatInputBarProps {
   setEditingMessage?: React.Dispatch<React.SetStateAction<ChatMessage | null>>;
   showAiPromptToolbar: boolean;
   setShowAiPromptToolbar: React.Dispatch<React.SetStateAction<boolean>>;
+  isBlocked?: boolean;
 }
 
 export const ChatInputBar: React.FC<ChatInputBarProps> = ({
@@ -63,6 +64,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
   setEditingMessage,
   showAiPromptToolbar,
   setShowAiPromptToolbar,
+  isBlocked = false,
 }) => {
   const [inputText, setInputText] = useState("");
   const [isVoiceRecorderOpen, setIsVoiceRecorderOpen] = useState(false);
@@ -84,6 +86,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
   };
 
   const handleSendMessage = async () => {
+    if (isBlocked) return;
     if (inputText.trim() === "") return;
 
     const newMsg: ChatMessage = {
@@ -141,6 +144,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
   };
 
   const handleSendVoiceNote = async () => {
+    if (isBlocked) return;
     if (!voiceRecorder.isRecording) {
       // Start recording
       const started = await voiceRecorder.startRecording();
@@ -150,6 +154,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
     } else {
       // Stop recording and send
       setIsSendingVoice(true);
+      let sent = false;
       try {
         const result = await voiceRecorder.stopRecording();
         if (result) {
@@ -185,12 +190,13 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
         if (onUpdateConversation) {
           onUpdateConversation(activeConv.id, "Voice Note", savedMsg || newMsg);
         }
+        sent = true;
         }
       } catch (error) {
         console.warn("[ChatInputBar] Voice note send failed:", error);
       } finally {
         setIsSendingVoice(false);
-        setIsVoiceRecorderOpen(false);
+        if (sent) setIsVoiceRecorderOpen(false);
       }
     }
   };
@@ -226,7 +232,9 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
         )}
       </AnimatePresence>
 
-      {isVoiceRecorderOpen ? (
+      {isBlocked ? (
+        <div className="w-full rounded-xl bg-rose-950/60 px-3 py-2 text-center text-xs font-semibold text-rose-200">Unable to talk to this user. Unblock them in Privacy Settings.</div>
+      ) : isVoiceRecorderOpen ? (
         <motion.div
           initial={{ opacity: 0, x: 50 }}
           animate={{ opacity: 1, x: 0 }}

@@ -2,6 +2,8 @@
 -- Run this in your Supabase SQL editor.
 
 ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS story_visibility TEXT NOT NULL DEFAULT 'Everyone';
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS profile_photo_visibility TEXT NOT NULL DEFAULT 'Everyone';
 
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can read profiles" ON public.profiles;
@@ -217,6 +219,25 @@ BEGIN
 END $$;
 
 -- One-way fleet membership used by Join Fleet / Mutiny and The Manifest.
+CREATE TABLE IF NOT EXISTS public.user_blocks (
+  blocker_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  blocked_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (blocker_id, blocked_id),
+  CONSTRAINT user_blocks_not_self CHECK (blocker_id <> blocked_id)
+);
+
+ALTER TABLE public.user_blocks ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view their blocks" ON public.user_blocks;
+CREATE POLICY "Users can view their blocks" ON public.user_blocks FOR SELECT TO authenticated
+  USING (auth.uid() = blocker_id OR auth.uid() = blocked_id);
+DROP POLICY IF EXISTS "Users can block users" ON public.user_blocks;
+CREATE POLICY "Users can block users" ON public.user_blocks FOR INSERT TO authenticated
+  WITH CHECK (auth.uid() = blocker_id);
+DROP POLICY IF EXISTS "Users can unblock users" ON public.user_blocks;
+CREATE POLICY "Users can unblock users" ON public.user_blocks FOR DELETE TO authenticated
+  USING (auth.uid() = blocker_id);
+
 CREATE TABLE IF NOT EXISTS public.follows (
   follower_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   following_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,

@@ -59,6 +59,21 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
   const [manifest, setManifest] = useState<{ name: string; avatar: string }[]>([]);
   const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
 
+  useEffect(() => {
+    if (!isOpen || !currentUserId || !targetUser.id) return;
+    void supabase.from('user_blocks').select('blocked_id').eq('blocker_id', currentUserId).eq('blocked_id', targetUser.id).maybeSingle().then(({ data }) => setIsBlocked(Boolean(data)));
+  }, [isOpen, currentUserId, targetUser.id]);
+
+  const toggleBlock = async () => {
+    const nextBlocked = !isBlocked;
+    setIsBlocked(nextBlocked);
+    const result = nextBlocked
+      ? await supabase.from('user_blocks').insert({ blocker_id: currentUserId, blocked_id: targetUser.id })
+      : await supabase.from('user_blocks').delete().eq('blocker_id', currentUserId).eq('blocked_id', targetUser.id);
+    if (result.error) setIsBlocked(!nextBlocked);
+    else onNotice(nextBlocked ? 'User blocked' : 'User unblocked');
+  };
+
   const loadRelationship = async () => {
     if (!currentUserId || !targetUser.id || currentUserId === targetUser.id) return;
     const { data: follow } = await supabase
@@ -403,8 +418,7 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
                 </div>
                 <button
                   onClick={() => {
-                    setIsBlocked(!isBlocked);
-                    onNotice(isBlocked ? 'User Unblocked' : 'User Blocked');
+                    void toggleBlock();
                   }}
                   className={`px-3 py-1 rounded-lg font-bold ${
                     isBlocked ? 'bg-rose-500 text-white' : 'bg-slate-800 text-rose-300'

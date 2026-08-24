@@ -186,6 +186,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
   const [inputText, setInputText] = useState<string>("");
   const mediaInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingMedia, setIsUploadingMedia] = useState(false);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
 
   // MENU 1: Attachment Drawer State
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
@@ -282,6 +283,11 @@ export const ChatView: React.FC<ChatViewProps> = ({
     isBlocked: false,
     blockReason: undefined,
   });
+  const [isUserBlocked, setIsUserBlocked] = useState(false);
+
+  useEffect(() => {
+    void supabase.from("user_blocks").select("blocked_id").eq("blocker_id", currentUser.id).eq("blocked_id", activeConv.user.id).maybeSingle().then(({ data }) => setIsUserBlocked(Boolean(data)));
+  }, [currentUser.id, activeConv.user.id]);
 
   // Persist Chat Info preference changes locally (and to Supabase when table exists)
   const handleChatPrefsChange = (patch: Partial<ConversationPreferences>) => {
@@ -1824,9 +1830,25 @@ const isMe =
                 id={`msg-${msg.id}`}
                 ref={(node) => observeMessageRef(node, msg)}
                 onDoubleClick={() => handleDoubleTap(msg.id)}
+                onTouchStart={(event) => {
+                  const touch = event.touches[0];
+                  swipeStartRef.current = { x: touch.clientX, y: touch.clientY };
+                }}
+                onTouchEnd={(event) => {
+                  const start = swipeStartRef.current;
+                  const touch = event.changedTouches[0];
+                  swipeStartRef.current = null;
+                  if (!start || !touch) return;
+                  const deltaX = touch.clientX - start.x;
+                  const deltaY = touch.clientY - start.y;
+                  if (deltaX < -60 && Math.abs(deltaX) > Math.abs(deltaY) * 1.25) {
+                    setReplyingTo(msg);
+                    showNotice("Replying to message");
+                  }
+                }}
                 className={`flex flex-col w-full ${
                   isMe ? "justify-end items-end" : "justify-start items-start"
-                } group transition-all duration-300 relative ${
+                } group transition-all duration-300 relative touch-pan-y ${
                   isHighlighted
                     ? "scale-105 ring-2 ring-cyan-400 rounded-2xl p-1"
                     : ""
@@ -2691,6 +2713,7 @@ const isMe =
             setEditingMessage={setEditingMessage}
             showAiPromptToolbar={showAiPromptToolbar}
             setShowAiPromptToolbar={setShowAiPromptToolbar}
+            isBlocked={isUserBlocked}
           />
         </div>
       </div>
