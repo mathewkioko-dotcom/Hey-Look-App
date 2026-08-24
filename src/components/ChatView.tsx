@@ -967,7 +967,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
           receiver_id: activeConv.user.id,
           text: result.title || "Voice note",
           type: "voice" as const,
-          audio_url: result.image_url,
+          audio_url: result.audio_url,
           audio_duration: result.audio_duration,
           created_at: new Date().toISOString(),
         };

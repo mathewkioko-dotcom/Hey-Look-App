@@ -245,6 +245,11 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
           >
             <Send className="w-5 h-5" />
           </button>
+          {voiceRecorder.error && (
+            <p className="absolute bottom-full left-2 right-2 mb-1 rounded-xl bg-rose-950 px-3 py-2 text-center text-[11px] text-rose-200">
+              {voiceRecorder.error}
+            </p>
+          )}
         </motion.div>
       ) : (
         <>

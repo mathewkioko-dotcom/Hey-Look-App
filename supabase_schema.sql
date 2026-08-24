@@ -200,9 +200,19 @@ USING (bucket_id = 'story-media');
 -- Run this in the Supabase Dashboard -> Storage -> New Bucket,
 -- set name = "voice-notes" and Public = ON, OR use the SQL below.
 -- ==============================================================
--- INSERT INTO storage.buckets (id, name, public)
--- VALUES ('voice-notes', 'voice-notes', true)
--- ON CONFLICT (id) DO NOTHING;
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('voice-notes', 'voice-notes', true)
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "Authenticated users can upload voice notes" ON storage.objects;
+CREATE POLICY "Authenticated users can upload voice notes"
+ON storage.objects FOR INSERT TO authenticated
+WITH CHECK (bucket_id = 'voice-notes');
+
+DROP POLICY IF EXISTS "Anyone can read voice notes" ON storage.objects;
+CREATE POLICY "Anyone can read voice notes"
+ON storage.objects FOR SELECT TO public
+USING (bucket_id = 'voice-notes');
 
 -- Delivery state vector: 0 = Stranded, 1 = Launched, 2 = Docked, 3 = Submerged
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS delivery_state SMALLINT DEFAULT 1;
