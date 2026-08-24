@@ -30,6 +30,29 @@ interface AppNotification {
   createdAt: string;
 }
 
+function playMessageAlert() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const context = new AudioContextClass();
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "sine";
+    oscillator.frequency.setValueAtTime(740, context.currentTime);
+    oscillator.frequency.exponentialRampToValueAtTime(520, context.currentTime + 0.14);
+    gain.gain.setValueAtTime(0.0001, context.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, context.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.16);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.16);
+    oscillator.addEventListener("ended", () => void context.close());
+  } catch (error) {
+    console.warn("[MainLayout] Message sound unavailable:", error);
+  }
+}
+
 interface MainLayoutProps {
   currentUser: Profile;
   onUpdateProfile: (updated: Partial<Profile>) => void;
@@ -50,6 +73,12 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   const [showNotifications, setShowNotifications] = useState(false);
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [liveNotification, setLiveNotification] = useState<AppNotification | null>(null);
+
+  const enableNotifications = async () => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -112,6 +141,13 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           text: row.text || row.content || (row.type === "video" ? "sent you a video" : row.type === "image" ? "sent you a photo" : "sent you a message"),
           createdAt: row.created_at,
         });
+        playMessageAlert();
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          new Notification(`New message from ${profile?.full_name || profile?.username || "A HeyLook user"}`, {
+            body: row.text || row.content || (row.type === "video" ? "Sent you a video" : row.type === "image" ? "Sent you a photo" : "Sent you a message"),
+            icon: profile?.avatar_url || undefined,
+          });
+        }
         window.setTimeout(() => {
           setLiveNotification((current) => current?.id === row.id ? null : current);
         }, 5000);
@@ -195,7 +231,10 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
             {/* Notification Bell */}
             <div className="relative">
               <button
-                onClick={() => setShowNotifications(!showNotifications)}
+                onClick={() => {
+                  void enableNotifications();
+                  setShowNotifications(!showNotifications);
+                }}
                 className="p-2.5 rounded-2xl text-slate-500 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors relative"
               >
                 <Bell className="w-5 h-5" />

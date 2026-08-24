@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Film,
   MoreVertical,
+  Bookmark,
 } from "lucide-react";
 import { ReelItem, Profile } from "../../types";
 import { feedService } from "../../services/feedService";
@@ -29,6 +30,9 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   const [activeReelIndex, setActiveReelIndex] = useState(0);
   const [isMuted, setIsMuted] = useState(true);
   const [showComments, setShowComments] = useState(false);
+  const [savedReels, setSavedReels] = useState<Record<string, boolean>>({});
+  const [reelComments, setReelComments] = useState<Record<string, string[]>>({});
+  const [commentInput, setCommentInput] = useState("");
   const [doubleTapHeart, setDoubleTapHeart] = useState<{
     x: number;
     y: number;
@@ -75,6 +79,17 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
         return r;
       }),
     );
+  };
+
+  const handleShare = async () => {
+    if (!currentReel) return;
+    const shareText = `${currentReel.author.name}: ${currentReel.caption}`;
+    if (navigator.share) {
+      await navigator.share({ title: "HeyLook Reel", text: shareText, url: currentReel.video_url }).catch(() => undefined);
+    } else if (navigator.clipboard) {
+      await navigator.clipboard.writeText(currentReel.video_url);
+    }
+    setReels((prev) => prev.map((reel) => reel.id === currentReel.id ? { ...reel, shares_count: reel.shares_count + 1 } : reel));
   };
 
   const handleDoubleTap = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -266,13 +281,24 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
                 </span>
               </button>
 
-              <button className="flex flex-col items-center gap-1 cursor-pointer focus:outline-none">
+              <button onClick={handleShare} className="flex flex-col items-center gap-1 cursor-pointer focus:outline-none" aria-label="Share reel">
                 <div className="p-3 rounded-full bg-black/40 hover:bg-black/60 text-white backdrop-blur-md transition-all">
                   <Share2 className="w-6 h-6" />
                 </div>
                 <span className="text-xs font-bold drop-shadow-md">
                   {currentReel.shares_count}
                 </span>
+              </button>
+
+              <button
+                onClick={() => setSavedReels((prev) => ({ ...prev, [currentReel.id]: !prev[currentReel.id] }))}
+                className="flex flex-col items-center gap-1 cursor-pointer focus:outline-none"
+                aria-label={savedReels[currentReel.id] ? "Remove from saved reels" : "Save reel"}
+              >
+                <div className={`p-3 rounded-full backdrop-blur-md transition-all ${savedReels[currentReel.id] ? "bg-amber-400 text-slate-950" : "bg-black/40 hover:bg-black/60 text-white"}`}>
+                  <Bookmark className="w-6 h-6" fill={savedReels[currentReel.id] ? "currentColor" : "none"} />
+                </div>
+                <span className="text-[10px] font-bold">{savedReels[currentReel.id] ? "Saved" : "Save"}</span>
               </button>
 
 <motion.div
@@ -321,8 +347,8 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
                   }`}
                 >
                   {followingMap[currentReel.author.username]
-                    ? "Following"
-                    : "Follow"}
+                    ? "Mutiny"
+                    : "Recruit to Crew"}
                 </button>
               </div>
 
@@ -449,6 +475,17 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
       )}
 
       {/* REEL CONTEXT MENU MODAL */}
+      <AnimatePresence>
+        {showComments && currentReel && (
+          <motion.div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowComments(false)}>
+            <motion.div className="w-full max-w-md max-h-[65vh] overflow-y-auto rounded-t-3xl bg-slate-900 p-5 text-white" onClick={(event) => event.stopPropagation()} initial={{ y: 300 }} animate={{ y: 0 }}>
+              <div className="flex items-center justify-between mb-4"><h3 className="font-bold">Crew Replies</h3><button onClick={() => setShowComments(false)} aria-label="Close comments"><X className="w-5 h-5" /></button></div>
+              <div className="space-y-2 mb-4">{(reelComments[currentReel.id] || []).map((comment, index) => <p key={`${comment}-${index}`} className="p-2 rounded-xl bg-slate-800 text-xs">{comment}</p>)}{!(reelComments[currentReel.id] || []).length && <p className="text-xs text-slate-400">No replies yet. Start the conversation.</p>}</div>
+              <div className="flex gap-2"><input value={commentInput} onChange={(event) => setCommentInput(event.target.value)} placeholder="Write a reply..." className="min-w-0 flex-1 rounded-xl bg-slate-800 px-3 py-2 text-xs outline-none" /><button onClick={() => { if (!commentInput.trim()) return; setReelComments((prev) => ({ ...prev, [currentReel.id]: [...(prev[currentReel.id] || []), commentInput.trim()] })); setCommentInput(""); }} className="rounded-xl bg-pink-500 px-3 text-xs font-bold">Reply</button></div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <ReelsMenuModal
         isOpen={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}

@@ -73,6 +73,10 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   const [storyPrivacyLevel, setStoryPrivacyLevel] = useState<PrivacyLevel>('Public');
   const [isPublishingStory, setIsPublishingStory] = useState(false);
   const [storyPublishError, setStoryPublishError] = useState('');
+  const [storyReactions, setStoryReactions] = useState<Record<string, boolean>>({});
+  const [storyReplies, setStoryReplies] = useState<Record<string, string[]>>({});
+  const [storyReplyInput, setStoryReplyInput] = useState('');
+  const [savedStories, setSavedStories] = useState<Record<string, boolean>>({});
   const [storyFileName, setStoryFileName] = useState('');
 
   // Story viewer state
@@ -479,6 +483,47 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                     </p>
                   </div>
                 </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setStoryReactions((prev) => ({ ...prev, [stories[activeStoryIndex].id]: !prev[stories[activeStoryIndex].id] }))}
+                    className={`rounded-full px-3 py-2 text-xs font-bold ${storyReactions[stories[activeStoryIndex].id] ? 'bg-rose-500 text-white' : 'bg-black/50 text-white'}`}
+                  >
+                    {storyReactions[stories[activeStoryIndex].id] ? 'Liked ❤️' : 'Like 🤍'}
+                  </button>
+                  {['👍', '❤️', '😂', '🔥'].map((emoji) => (
+                    <button key={emoji} onClick={() => setStoryReactions((prev) => ({ ...prev, [stories[activeStoryIndex].id]: true }))} className="rounded-full bg-black/50 px-2 py-2 text-sm" aria-label={`React ${emoji}`}>
+                      {emoji}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setSavedStories((prev) => ({ ...prev, [stories[activeStoryIndex].id]: !prev[stories[activeStoryIndex].id] }))}
+                    className="ml-auto rounded-full bg-black/50 px-3 py-2 text-xs font-bold text-white"
+                  >
+                    {savedStories[stories[activeStoryIndex].id] ? 'Saved' : 'Save'}
+                  </button>
+                </div>
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={storyReplyInput}
+                    onChange={(event) => setStoryReplyInput(event.target.value)}
+                    placeholder="Reply to story..."
+                    className="min-w-0 flex-1 rounded-xl bg-black/50 px-3 py-2 text-xs text-white outline-none placeholder:text-slate-300"
+                  />
+                  <button
+                    onClick={() => {
+                      if (!storyReplyInput.trim()) return;
+                      const storyId = stories[activeStoryIndex].id;
+                      setStoryReplies((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), storyReplyInput.trim()] }));
+                      setStoryReplyInput('');
+                    }}
+                    className="rounded-xl bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950"
+                  >
+                    Reply
+                  </button>
+                </div>
+                {!!storyReplies[stories[activeStoryIndex].id]?.length && (
+                  <p className="mt-2 text-[10px] text-slate-200">{storyReplies[stories[activeStoryIndex].id].length} reply(ies) added</p>
+                )}
               </div>
 
               <button

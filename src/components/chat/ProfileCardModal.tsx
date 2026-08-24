@@ -22,11 +22,13 @@ import {
   DollarSign
 } from 'lucide-react';
 import { Profile } from '../../types';
+import { supabase } from '../../lib/supabase';
 
 interface ProfileCardModalProps {
   isOpen: boolean;
   onClose: () => void;
   targetUser: { id: string; name: string; avatar: string; bio?: string; last_seen?: string };
+  currentUserId: string;
   isVip: boolean;
   onToggleVip: () => void;
   languageOverride: string;
@@ -38,6 +40,7 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
   isOpen,
   onClose,
   targetUser,
+  currentUserId,
   isVip,
   onToggleVip,
   languageOverride,
@@ -50,6 +53,54 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
   const [muteTyping, setMuteTyping] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
   const [biometricUnlocked, setBiometricUnlocked] = useState(false);
+  const [isInFleet, setIsInFleet] = useState(false);
+  const [manifest, setManifest] = useState<{ name: string; avatar: string }[]>([]);
+  const [isRelationshipLoading, setIsRelationshipLoading] = useState(false);
+
+  const loadRelationship = async () => {
+    if (!currentUserId || !targetUser.id || currentUserId === targetUser.id) return;
+    const { data: follow } = await supabase
+      .from('follows')
+      .select('follower_id')
+      .eq('follower_id', currentUserId)
+      .eq('following_id', targetUser.id)
+      .maybeSingle();
+    setIsInFleet(Boolean(follow));
+
+    const { data: followedRows } = await supabase
+      .from('follows')
+      .select('following_id')
+      .eq('follower_id', targetUser.id)
+      .limit(12);
+    const ids = (followedRows || []).map((row: any) => row.following_id);
+    if (!ids.length) return;
+    const { data: profiles } = await supabase.from('profiles').select('full_name, username, avatar_url').in('id', ids);
+    setManifest((profiles || []).map((profile: any) => ({
+      name: profile.full_name || profile.username || 'Crew member',
+      avatar: profile.avatar_url || 'https://api.dicebear.com/7.x/bottts/svg?seed=crew',
+    })));
+  };
+
+  useEffect(() => {
+    if (isOpen) void loadRelationship();
+  }, [isOpen, currentUserId, targetUser.id]);
+
+  const toggleFleetMembership = async () => {
+    if (!currentUserId || currentUserId === targetUser.id || isRelationshipLoading) return;
+    setIsRelationshipLoading(true);
+    const nextInFleet = !isInFleet;
+    setIsInFleet(nextInFleet);
+    const result = nextInFleet
+      ? await supabase.from('follows').insert({ follower_id: currentUserId, following_id: targetUser.id })
+      : await supabase.from('follows').delete().eq('follower_id', currentUserId).eq('following_id', targetUser.id);
+    if (result.error) {
+      setIsInFleet(!nextInFleet);
+      onNotice(`Could not ${nextInFleet ? 'join the fleet' : 'leave the fleet'}`);
+    } else {
+      onNotice(nextInFleet ? 'Joined Fleet' : 'Mutiny complete');
+    }
+    setIsRelationshipLoading(false);
+  };
 
   if (!isOpen) return null;
 
@@ -171,6 +222,22 @@ export const ProfileCardModal: React.FC<ProfileCardModalProps> = ({
           {/* TAB 2: RELATIONSHIP TAGS */}
           {activeTab === 'relationship' && (
             <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-cyan-950/40 border border-cyan-500/30 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Users className="w-4 h-4 text-cyan-400" />
+                  <div>
+                    <p className="font-bold text-slate-200">Fleet Membership</p>
+                    <p className="text-[10px] text-slate-400">{isInFleet ? 'You are in this crew' : 'Join this person\'s fleet'}</p>
+                  </div>
+                </div>
+                <button onClick={() => void toggleFleetMembership()} disabled={isRelationshipLoading || currentUserId === targetUser.id} className={`px-3 py-1 rounded-lg font-bold ${isInFleet ? 'bg-slate-800 text-slate-300' : 'bg-cyan-500 text-slate-950'} disabled:opacity-50`}>
+                  {isInFleet ? 'Mutiny' : 'Join Fleet'}
+                </button>
+              </div>
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800">
+                <div className="flex items-center justify-between mb-2"><p className="font-bold text-slate-200">The Manifest</p><span className="text-[10px] text-slate-500">{manifest.length} shown</span></div>
+                {manifest.length ? <div className="flex -space-x-2">{manifest.map((member, index) => <img key={`${member.name}-${index}`} src={member.avatar} alt={member.name} title={member.name} className="w-7 h-7 rounded-full border-2 border-slate-950 object-cover" />)}</div> : <p className="text-[10px] text-slate-500">No manifest members visible yet.</p>}
+              </div>
               <div className="space-y-1">
                 <label className="text-slate-400 font-bold">Partner Tier Label</label>
                 <select

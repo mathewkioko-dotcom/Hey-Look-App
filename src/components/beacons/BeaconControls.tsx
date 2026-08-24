@@ -156,7 +156,7 @@ export const BeaconControls: React.FC<BeaconControlsProps> = ({
         {[
           { k: "Public", desc: "Visible to everyone", icon: <Globe className="w-4 h-4 text-cyan-400" /> },
           { k: "Contacts Only", desc: "Only your contacts", icon: <Contact className="w-4 h-4 text-emerald-400" /> },
-          { k: "Close Friends List", desc: "A select circle", icon: <Star className="w-4 h-4 text-amber-400" /> },
+          { k: "The Manifest", desc: "A select circle", icon: <Star className="w-4 h-4 text-amber-400" /> },
           { k: "Hide Beacon From...", desc: "Exclude specific people", icon: <EyeOff className="w-4 h-4 text-rose-400" /> },
         ].map((opt) => (
           <button key={opt.k} onClick={() => { setAudience(opt.k); showToast(`Audience: ${opt.k}`); }} className={`w-full flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${audience === opt.k ? "border-cyan-500/60 bg-cyan-500/10" : "border-slate-700 bg-slate-800/50"}`}>

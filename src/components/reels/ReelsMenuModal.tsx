@@ -67,7 +67,7 @@ const SHARE_OPTIONS = [
   },
   {
     k: "Cast as Beacon",
-    desc: "Broadcast to followers",
+    desc: "Broadcast to your crew",
     icon: <Anchor className="w-4 h-4 text-rose-400" />,
   },
   {

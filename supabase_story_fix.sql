@@ -103,3 +103,64 @@ DROP POLICY IF EXISTS "Users can delete their messages" ON public.messages;
 CREATE POLICY "Users can delete their messages" ON public.messages
   FOR DELETE TO authenticated
   USING (auth.uid() = sender_id OR auth.uid() = receiver_id);
+
+-- Reels table used by the Reels tab.
+CREATE TABLE IF NOT EXISTS public.reels (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  caption TEXT NOT NULL DEFAULT '',
+  video_url TEXT NOT NULL,
+  song_title TEXT DEFAULT 'Original Audio • HeyLook',
+  likes_count INTEGER NOT NULL DEFAULT 0,
+  comments_count INTEGER NOT NULL DEFAULT 0,
+  shares_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+ALTER TABLE public.reels ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Anyone can read reels" ON public.reels;
+CREATE POLICY "Anyone can read reels" ON public.reels
+  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can publish reels" ON public.reels;
+CREATE POLICY "Users can publish reels" ON public.reels
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can update own reels" ON public.reels;
+CREATE POLICY "Users can update own reels" ON public.reels
+  FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can delete own reels" ON public.reels;
+CREATE POLICY "Users can delete own reels" ON public.reels
+  FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+-- Enable database INSERT events for the app's real-time notifications.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime'
+      AND schemaname = 'public'
+      AND tablename = 'messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+  END IF;
+END $$;
+
+-- One-way fleet membership used by Join Fleet / Mutiny and The Manifest.
+CREATE TABLE IF NOT EXISTS public.follows (
+  follower_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  following_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (follower_id, following_id),
+  CONSTRAINT follows_not_self CHECK (follower_id <> following_id)
+);
+
+ALTER TABLE public.follows ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated users can view fleet memberships" ON public.follows;
+CREATE POLICY "Authenticated users can view fleet memberships" ON public.follows
+  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can join a fleet" ON public.follows;
+CREATE POLICY "Users can join a fleet" ON public.follows
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = follower_id);
+DROP POLICY IF EXISTS "Users can mutiny from a fleet" ON public.follows;
+CREATE POLICY "Users can mutiny from a fleet" ON public.follows
+  FOR DELETE TO authenticated USING (auth.uid() = follower_id);

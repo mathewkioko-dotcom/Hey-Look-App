@@ -146,6 +146,8 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
   // Edit Profile state
   const [editSub, setEditSub] = useState<"list" | "avatar" | "name" | "bio" | "handle">("list");
   const [avatarInput, setAvatarInput] = useState(currentUser.avatar_url || "");
+  const [avatarZoom, setAvatarZoom] = useState(1);
+  const [avatarFilter, setAvatarFilter] = useState("none");
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const deviceInputRef = useRef<HTMLInputElement>(null);
   const [nameInput, setNameInput] = useState(currentUser.full_name || "");
@@ -240,21 +242,51 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
       return;
     }
 
-    const extension = file.name.split(".").pop()?.toLowerCase() || "jpg";
-    const path = `avatars/${currentUser.id}/${Date.now()}.${extension}`;
-    const { error } = await supabase.storage
-      .from("chat-media")
-      .upload(path, file, { upsert: false, contentType: file.type });
+    const reader = new FileReader();
+    reader.onload = () => setAvatarInput(String(reader.result || ""));
+    reader.readAsDataURL(file);
+  };
 
-    if (error) {
-      showToast(`Upload failed: ${error.message}`);
+  const saveAvatarWithEdits = async () => {
+    if (!avatarInput) return;
+    if (!avatarInput.startsWith("data:image/")) {
+      await saveProfile({ avatar_url: avatarInput });
       return;
     }
-
-    const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
-    if (data?.publicUrl) {
-      setAvatarInput(data.publicUrl);
+    try {
+      const image = new Image();
+      image.src = avatarInput;
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = reject;
+      });
+      const canvas = document.createElement("canvas");
+      canvas.width = 512;
+      canvas.height = 512;
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas unavailable");
+      const scale = Math.max(canvas.width / image.width, canvas.height / image.height) * avatarZoom;
+      const width = image.width * scale;
+      const height = image.height * scale;
+      const filterMap: Record<string, string> = {
+        none: "none",
+        vivid: "saturate(1.45) contrast(1.08)",
+        noir: "grayscale(1) contrast(1.25)",
+        warm: "sepia(.25) saturate(1.25)",
+        cool: "hue-rotate(18deg) saturate(1.15)",
+      };
+      context.filter = filterMap[avatarFilter] || "none";
+      context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+      const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("Could not process image")), "image/jpeg", 0.9));
+      const path = `avatars/${currentUser.id}/${Date.now()}.jpg`;
+      const { error } = await supabase.storage.from("chat-media").upload(path, blob, { upsert: false, contentType: "image/jpeg" });
+      if (error) throw error;
+      const { data } = supabase.storage.from("chat-media").getPublicUrl(path);
       await saveProfile({ avatar_url: data.publicUrl });
+      setAvatarInput(data.publicUrl);
+      showToast("Avatar updated");
+    } catch (error: any) {
+      showToast(`Avatar upload failed: ${error?.message || "Try again"}`);
     }
   };
 
@@ -267,7 +299,15 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
           <div className="space-y-4">
             <Header title="Change Avatar" subtitle="Update your profile picture" color="text-cyan-400" bg="bg-cyan-500/20 border-cyan-500/30" icon={<User className="w-6 h-6" />} onBack={back} />
             <div className="flex flex-col items-center gap-3 py-4">
-              <img src={avatarInput || currentUser.avatar_url} alt="avatar" className="w-24 h-24 rounded-full object-cover border-4 border-cyan-500/40 shadow-xl" />
+              <div className="w-28 h-28 rounded-full overflow-hidden border-4 border-cyan-500/40 shadow-xl">
+                <img src={avatarInput || currentUser.avatar_url} alt="avatar" className="w-full h-full object-cover" style={{ transform: `scale(${avatarZoom})`, filter: avatarFilter === "noir" ? "grayscale(1) contrast(1.25)" : avatarFilter === "vivid" ? "saturate(1.45) contrast(1.08)" : avatarFilter === "warm" ? "sepia(.25) saturate(1.25)" : avatarFilter === "cool" ? "hue-rotate(18deg) saturate(1.15)" : "none" }} />
+              </div>
+              <label className="w-full text-xs font-bold text-slate-400">Crop / Zoom: {avatarZoom.toFixed(1)}x</label>
+              <input type="range" min="1" max="2.5" step="0.1" value={avatarZoom} onChange={(e) => setAvatarZoom(Number(e.target.value))} className="w-full accent-cyan-500" />
+              <div className="w-full space-y-1">
+                <label className="text-xs font-bold text-slate-400">Hymli AI Filters</label>
+                <div className="flex flex-wrap gap-2">{[["none", "Original"], ["vivid", "Vivid"], ["noir", "Noir"], ["warm", "Warm"], ["cool", "Cool"]].map(([value, label]) => <button key={value} type="button" onClick={() => setAvatarFilter(value)} className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold border ${avatarFilter === value ? "border-cyan-400 bg-cyan-500/20 text-cyan-300" : "border-slate-700 text-slate-400"}`}>{label}</button>)}</div>
+              </div>
               <div className="grid grid-cols-2 gap-2 w-full">
                 <button
                   type="button"
@@ -316,7 +356,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
               </div>
               <input type="text" value={avatarInput} onChange={(e) => setAvatarInput(e.target.value)} placeholder="Paste image URL..." className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" />
             </div>
-            <button onClick={() => { saveProfile({ avatar_url: avatarInput }); }} className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer">Save Avatar</button>
+            <button onClick={() => { void saveAvatarWithEdits(); }} className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer">Save Avatar</button>
           </div>
         );
       }

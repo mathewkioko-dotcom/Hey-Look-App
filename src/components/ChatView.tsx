@@ -1478,6 +1478,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
         isOpen={isUserProfileModalOpen}
         onClose={() => setIsUserProfileModalOpen(false)}
         targetUser={activeConv.user}
+        currentUserId={currentUser.id}
         isVip={isVipPriority}
         onToggleVip={() => {
           setIsVipPriority(!isVipPriority);
