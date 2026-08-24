@@ -152,6 +152,23 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
           setLiveNotification((current) => current?.id === row.id ? null : current);
         }, 5000);
       })
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "story_reactions" }, async (payload) => {
+        const reaction = payload.new as any;
+        const { data: story } = await supabase.from("stories").select("user_id").eq("id", reaction.story_id).maybeSingle();
+        if (!isMounted || !story || story.user_id !== currentUser.id || reaction.user_id === currentUser.id) return;
+        const { data: profile } = await supabase.from("profiles").select("full_name, username, avatar_url").eq("id", reaction.user_id).maybeSingle();
+        const notification = {
+          id: `story-reaction-${reaction.story_id}-${reaction.user_id}`,
+          senderName: profile?.full_name || profile?.username || "A HeyLook user",
+          senderAvatar: profile?.avatar_url || "https://api.dicebear.com/7.x/bottts/svg?seed=user",
+          text: `reacted ${reaction.emoji} to your story`,
+          createdAt: reaction.created_at || new Date().toISOString(),
+        };
+        setNotifications((previous) => [notification, ...previous.filter((item) => item.id !== notification.id)].slice(0, 20));
+        setLiveNotification(notification);
+        playMessageAlert();
+        window.setTimeout(() => setLiveNotification((current) => current?.id === notification.id ? null : current), 5000);
+      })
       .subscribe();
 
     return () => {

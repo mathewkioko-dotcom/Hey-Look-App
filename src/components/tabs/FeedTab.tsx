@@ -349,6 +349,14 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
     };
   }, [activeStoryIndex, stories.length]);
 
+  useEffect(() => {
+    const story = activeStoryIndex === null ? null : stories[activeStoryIndex];
+    if (!story || story.user_id === currentUser.id) return;
+    void feedService.recordStoryView(story.id, currentUser.id).then((viewerCount) => {
+      setStories((previous) => previous.map((item) => item.id === story.id ? { ...item, viewer_count: viewerCount } : item));
+    });
+  }, [activeStoryIndex, currentUser.id]);
+
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
       {/* Top Header Mode Indicator */}
@@ -485,13 +493,18 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setStoryReactions((prev) => ({ ...prev, [stories[activeStoryIndex].id]: !prev[stories[activeStoryIndex].id] }))}
+                    onClick={() => {
+                      const story = stories[activeStoryIndex];
+                      const nextReaction = storyReactions[story.id] ? null : '❤️';
+                      setStoryReactions((prev) => ({ ...prev, [story.id]: !prev[story.id] }));
+                      void feedService.setStoryReaction(story.id, currentUser.id, nextReaction);
+                    }}
                     className={`rounded-full px-3 py-2 text-xs font-bold ${storyReactions[stories[activeStoryIndex].id] ? 'bg-rose-500 text-white' : 'bg-black/50 text-white'}`}
                   >
                     {storyReactions[stories[activeStoryIndex].id] ? 'Liked ❤️' : 'Like 🤍'}
                   </button>
                   {['👍', '❤️', '😂', '🔥'].map((emoji) => (
-                    <button key={emoji} onClick={() => setStoryReactions((prev) => ({ ...prev, [stories[activeStoryIndex].id]: true }))} className="rounded-full bg-black/50 px-2 py-2 text-sm" aria-label={`React ${emoji}`}>
+                    <button key={emoji} onClick={() => { const story = stories[activeStoryIndex]; setStoryReactions((prev) => ({ ...prev, [story.id]: true })); void feedService.setStoryReaction(story.id, currentUser.id, emoji); }} className="rounded-full bg-black/50 px-2 py-2 text-sm" aria-label={`React ${emoji}`}>
                       {emoji}
                     </button>
                   ))}
@@ -513,8 +526,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                     onClick={() => {
                       if (!storyReplyInput.trim()) return;
                       const storyId = stories[activeStoryIndex].id;
-                      setStoryReplies((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), storyReplyInput.trim()] }));
-                      setStoryReplyInput('');
+                      void feedService.sendStoryReply(storyId, currentUser.id, storyReplyInput.trim()).then((sent) => {
+                        if (!sent) return;
+                        setStoryReplies((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), storyReplyInput.trim()] }));
+                        setStoryReplyInput('');
+                      });
                     }}
                     className="rounded-xl bg-cyan-500 px-3 py-2 text-xs font-bold text-slate-950"
                   >
@@ -523,6 +539,9 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                 </div>
                 {!!storyReplies[stories[activeStoryIndex].id]?.length && (
                   <p className="mt-2 text-[10px] text-slate-200">{storyReplies[stories[activeStoryIndex].id].length} reply(ies) added</p>
+                )}
+                {stories[activeStoryIndex].user_id === currentUser.id && (
+                  <p className="mt-2 text-[10px] text-slate-200">{stories[activeStoryIndex].viewer_count || 0} viewer(s)</p>
                 )}
               </div>
 

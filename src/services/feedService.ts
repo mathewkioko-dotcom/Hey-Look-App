@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { sendMessage } from './chatService.messages';
 import { FeedPost, ReelItem, Profile, PostComment, ReactionType, PollData, PrivacyLevel } from '../types';
 
 export interface StoryItem {
@@ -9,6 +10,7 @@ export interface StoryItem {
   media_url?: string;
   created_at: string;
   privacy_level?: PrivacyLevel;
+  viewer_count?: number;
 }
 
 /**
@@ -426,6 +428,12 @@ export const feedService = {
       );
 
       const userIds = Array.from(new Set(visibleStories.map((s: any) => s.user_id).filter(Boolean)));
+      const ownStoryIds = visibleStories.filter((story: any) => story.user_id === currentUserId).map((story: any) => story.id);
+      const viewerCounts = new Map<string, number>();
+      if (ownStoryIds.length) {
+        const { data: views } = await supabase.from('story_views').select('story_id').in('story_id', ownStoryIds);
+        (views || []).forEach((view: any) => viewerCounts.set(view.story_id, (viewerCounts.get(view.story_id) || 0) + 1));
+      }
       let profileMap: Record<string, any> = {};
       if (userIds.length > 0) {
         const { data: profiles } = await supabase.from('profiles').select('*').in('id', userIds);
@@ -444,6 +452,7 @@ export const feedService = {
           media_url: s.media_url || s.image_url || s.cover_url,
           created_at: s.created_at,
           privacy_level: s.privacy_level || 'Public',
+          viewer_count: viewerCounts.get(s.id) || 0,
         };
       });
     } catch (err) {
@@ -518,6 +527,37 @@ export const feedService = {
     }
   },
 
+  async sendStoryReply(storyId: string, senderId: string, text: string): Promise<boolean> {
+    const { data: story, error } = await supabase.from('stories').select('user_id').eq('id', storyId).single();
+    if (error || !story || story.user_id === senderId) return false;
+    try {
+      await sendMessage({
+        sender_id: senderId,
+        receiver_id: story.user_id,
+        text: `💬 Story reply: ${text}`,
+        type: 'text',
+        created_at: new Date().toISOString(),
+      });
+      return true;
+    } catch (err) {
+      console.warn('[FeedService] Story reply failed:', err);
+      return false;
+    }
+  },
+
+  async setStoryReaction(storyId: string, userId: string, emoji: string | null): Promise<boolean> {
+    const result = emoji
+      ? await supabase.from('story_reactions').upsert({ story_id: storyId, user_id: userId, emoji }, { onConflict: 'story_id,user_id' })
+      : await supabase.from('story_reactions').delete().eq('story_id', storyId).eq('user_id', userId);
+    return !result.error;
+  },
+
+  async recordStoryView(storyId: string, viewerId: string): Promise<number> {
+    await supabase.from('story_views').upsert({ story_id: storyId, viewer_id: viewerId }, { onConflict: 'story_id,viewer_id', ignoreDuplicates: true });
+    const { count } = await supabase.from('story_views').select('viewer_id', { count: 'exact', head: true }).eq('story_id', storyId);
+    return count || 0;
+  },
+
   /**
    * Fetch real reels from Supabase `reels`
    */
@@ -570,6 +610,25 @@ export const feedService = {
   /**
    * Upload a new reel into Supabase `reels`
    */
+  async uploadReelVideo(userId: string, file: File): Promise<string | null> {
+    try {
+      const extension = file.name.split('.').pop()?.toLowerCase() || 'mp4';
+      const filePath = `reels/${userId}/${Date.now()}-${crypto.randomUUID()}.${extension}`;
+      const { data, error } = await supabase.storage
+        .from('chat-media')
+        .upload(filePath, file, { contentType: file.type || 'video/mp4', upsert: false });
+      if (error || !data) {
+        console.warn('[FeedService] Reel video upload failed:', error?.message);
+        return null;
+      }
+      const { data: publicData } = supabase.storage.from('chat-media').getPublicUrl(data.path);
+      return publicData.publicUrl || null;
+    } catch (err) {
+      console.warn('[FeedService] Reel video upload exception:', err);
+      return null;
+    }
+  },
+
   async createReel(
     userId: string,
     caption: string,

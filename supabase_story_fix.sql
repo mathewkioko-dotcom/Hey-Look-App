@@ -164,3 +164,54 @@ CREATE POLICY "Users can join a fleet" ON public.follows
 DROP POLICY IF EXISTS "Users can mutiny from a fleet" ON public.follows;
 CREATE POLICY "Users can mutiny from a fleet" ON public.follows
   FOR DELETE TO authenticated USING (auth.uid() = follower_id);
+
+-- Story reactions and unique viewers.
+CREATE TABLE IF NOT EXISTS public.story_reactions (
+  story_id UUID NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (story_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.story_views (
+  story_id UUID NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
+  viewer_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  viewed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (story_id, viewer_id)
+);
+
+ALTER TABLE public.story_reactions ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can view story reactions" ON public.story_reactions;
+CREATE POLICY "Users can view story reactions" ON public.story_reactions
+  FOR SELECT TO authenticated USING (true);
+DROP POLICY IF EXISTS "Users can react to stories" ON public.story_reactions;
+CREATE POLICY "Users can react to stories" ON public.story_reactions
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can change story reactions" ON public.story_reactions;
+CREATE POLICY "Users can change story reactions" ON public.story_reactions
+  FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users can remove story reactions" ON public.story_reactions;
+CREATE POLICY "Users can remove story reactions" ON public.story_reactions
+  FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'story_reactions'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.story_reactions;
+  END IF;
+END $$;
+
+ALTER TABLE public.story_views ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can record story views" ON public.story_views;
+CREATE POLICY "Users can record story views" ON public.story_views
+  FOR INSERT TO authenticated WITH CHECK (auth.uid() = viewer_id);
+DROP POLICY IF EXISTS "Story owners can view audience counts" ON public.story_views;
+CREATE POLICY "Story owners can view audience counts" ON public.story_views
+  FOR SELECT TO authenticated USING (
+    EXISTS (SELECT 1 FROM public.stories WHERE stories.id = story_views.story_id AND stories.user_id = auth.uid())
+    OR viewer_id = auth.uid()
+  );

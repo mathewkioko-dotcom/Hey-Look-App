@@ -44,6 +44,8 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [reelCaption, setReelCaption] = useState("");
   const [reelVideoUrl, setReelVideoUrl] = useState("");
+  const [reelVideoFile, setReelVideoFile] = useState<File | null>(null);
+  const [reelFileName, setReelFileName] = useState("");
   const [reelSongTitle, setReelSongTitle] = useState("HeyLook Original Audio");
   const [isPublishing, setIsPublishing] = useState(false);
 
@@ -110,19 +112,31 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
   };
 
   const handleUploadReelSubmit = async () => {
-    if (!reelVideoUrl.trim() || !reelCaption.trim()) return;
+    if ((!reelVideoUrl.trim() && !reelVideoFile) || !reelCaption.trim()) return;
     setIsPublishing(true);
+
+    let videoUrl = reelVideoUrl.trim();
+    if (reelVideoFile) {
+      const uploadedUrl = await feedService.uploadReelVideo(currentUser.id, reelVideoFile);
+      if (!uploadedUrl) {
+        setIsPublishing(false);
+        return;
+      }
+      videoUrl = uploadedUrl;
+    }
 
     const created = await feedService.createReel(
       currentUser.id,
       reelCaption.trim(),
-      reelVideoUrl.trim(),
+      videoUrl,
       reelSongTitle.trim(),
     );
 
     if (created) {
       setReelCaption("");
       setReelVideoUrl("");
+      setReelVideoFile(null);
+      setReelFileName("");
       setIsUploadModalOpen(false);
       await loadReels();
     }
@@ -407,6 +421,27 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
 
             <div>
               <label className="text-xs font-medium text-slate-400">
+                Choose Video From Device
+              </label>
+              <input
+                type="file"
+                accept="video/*"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (!file.type.startsWith("video/")) return;
+                  if (file.size > 100 * 1024 * 1024) return;
+                  setReelVideoFile(file);
+                  setReelFileName(file.name);
+                  setReelVideoUrl("");
+                }}
+                className="w-full mt-1 px-3 py-2 text-xs rounded-xl bg-slate-800 border border-slate-700 text-white file:mr-2 file:rounded-lg file:border-0 file:bg-pink-500 file:px-2 file:py-1 file:text-[10px] file:font-bold file:text-white"
+              />
+              {reelFileName && <p className="mt-1 text-[10px] text-pink-300">Selected: {reelFileName}</p>}
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-400">
                 Video Stream URL (MP4)
               </label>
               <input
@@ -463,8 +498,8 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark }) => {
 
             <button
               onClick={handleUploadReelSubmit}
-              disabled={
-                !reelVideoUrl.trim() || !reelCaption.trim() || isPublishing
+                disabled={
+                (!reelVideoUrl.trim() && !reelVideoFile) || !reelCaption.trim() || isPublishing
               }
               className="w-full py-3 rounded-2xl bg-gradient-to-r from-pink-500 to-rose-600 font-bold text-sm text-white shadow-lg hover:scale-[1.02] transition-all disabled:opacity-40 cursor-pointer"
             >
