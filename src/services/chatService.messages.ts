@@ -140,9 +140,11 @@ export async function sendMessage(
 
     if (error) {
       console.warn("[ChatService] Could not persist to DB:", error.message);
+      throw error;
     }
   } catch (err) {
     console.warn("[ChatService] Network exception inserting message:", err);
+    throw err;
   }
 
   // ---- INSTANT BROADCAST DELIVERY ----

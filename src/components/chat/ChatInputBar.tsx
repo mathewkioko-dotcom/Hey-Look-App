@@ -150,8 +150,9 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
     } else {
       // Stop recording and send
       setIsSendingVoice(true);
-      const result = await voiceRecorder.stopRecording();
-      if (result) {
+      try {
+        const result = await voiceRecorder.stopRecording();
+        if (result) {
         const newMsg: ChatMessage = {
           id: generateId(),
           sender_id: currentUser.id,
@@ -184,9 +185,13 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
         if (onUpdateConversation) {
           onUpdateConversation(activeConv.id, "Voice Note", savedMsg || newMsg);
         }
+        }
+      } catch (error) {
+        console.warn("[ChatInputBar] Voice note send failed:", error);
+      } finally {
+        setIsSendingVoice(false);
+        setIsVoiceRecorderOpen(false);
       }
-      setIsSendingVoice(false);
-      setIsVoiceRecorderOpen(false);
     }
   };
 

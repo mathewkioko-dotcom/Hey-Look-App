@@ -81,6 +81,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
 
   // Story viewer state
   const [activeStoryIndex, setActiveStoryIndex] = useState<number | null>(null);
+  const [activeStoryWithinGroup, setActiveStoryWithinGroup] = useState(0);
   const [storyProgress, setStoryProgress] = useState(0);
   const storyTimerRef = useRef<number | null>(null);
 
@@ -99,6 +100,15 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   useEffect(() => {
     loadData();
   }, [currentUser.id]);
+
+  const storyGroups = Array.from(
+    stories.reduce((groups, story) => {
+      const group = groups.get(story.user_id) || [];
+      group.push(story);
+      groups.set(story.user_id, group);
+      return groups;
+    }, new Map<string, StoryItem[]>()).values(),
+  );
 
   // 1. Reaction Toggle & Picker Handler
   const handleSelectReaction = async (postId: string, reaction: ReactionType) => {
@@ -296,6 +306,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
 
   const openStory = (index: number) => {
     setActiveStoryIndex(index);
+    setActiveStoryWithinGroup(0);
     setStoryProgress(0);
   };
 
@@ -305,18 +316,28 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
       storyTimerRef.current = null;
     }
     setActiveStoryIndex(null);
+    setActiveStoryWithinGroup(0);
     setStoryProgress(0);
   };
 
   const goToStory = (offset: number) => {
-    if (activeStoryIndex === null || stories.length === 0) return;
-    const nextIndex = Math.min(stories.length - 1, Math.max(0, activeStoryIndex + offset));
-    setActiveStoryIndex(nextIndex);
+    if (activeStoryIndex === null || storyGroups.length === 0) return;
+    const group = storyGroups[activeStoryIndex];
+    const nextStory = activeStoryWithinGroup + offset;
+    if (nextStory >= 0 && nextStory < group.length) {
+      setActiveStoryWithinGroup(nextStory);
+    } else {
+      const nextGroup = activeStoryIndex + (offset > 0 ? 1 : -1);
+      if (nextGroup >= 0 && nextGroup < storyGroups.length) {
+        setActiveStoryIndex(nextGroup);
+        setActiveStoryWithinGroup(offset > 0 ? 0 : storyGroups[nextGroup].length - 1);
+      }
+    }
     setStoryProgress(0);
   };
 
   useEffect(() => {
-    if (activeStoryIndex === null || stories.length === 0) {
+    if (activeStoryIndex === null || storyGroups.length === 0) {
       setStoryProgress(0);
       return;
     }
@@ -328,10 +349,7 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
       setStoryProgress(progress);
 
       if (progress >= 100) {
-        setActiveStoryIndex((current) => {
-          if (current === null || stories.length === 0) return current;
-          return current >= stories.length - 1 ? 0 : current + 1;
-        });
+        goToStory(1);
         setStoryProgress(0);
         return;
       }
@@ -347,15 +365,19 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
         storyTimerRef.current = null;
       }
     };
-  }, [activeStoryIndex, stories.length]);
+  }, [activeStoryIndex, activeStoryWithinGroup, storyGroups.length]);
 
   useEffect(() => {
-    const story = activeStoryIndex === null ? null : stories[activeStoryIndex];
+    const story = activeStoryIndex === null ? null : storyGroups[activeStoryIndex]?.[activeStoryWithinGroup];
     if (!story || story.user_id === currentUser.id) return;
     void feedService.recordStoryView(story.id, currentUser.id).then((viewerCount) => {
       setStories((previous) => previous.map((item) => item.id === story.id ? { ...item, viewer_count: viewerCount } : item));
     });
-  }, [activeStoryIndex, currentUser.id]);
+  }, [activeStoryIndex, activeStoryWithinGroup, currentUser.id, storyGroups.length]);
+
+  const currentViewedStory = activeStoryIndex === null
+    ? null
+    : storyGroups[activeStoryIndex]?.[activeStoryWithinGroup] || null;
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 pb-12">
@@ -397,9 +419,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
           <span className="text-[10px] text-slate-400 mt-0.5">Share moment</span>
         </motion.div>
 
-        {stories.map((story, index) => (
+        {storyGroups.map((group, index) => {
+          const story = group[0];
+          return (
           <motion.div
-            key={story.id}
+            key={story.user_id}
             whileHover={{ scale: 1.03 }}
             onClick={() => openStory(index)}
             className={`relative w-28 h-44 rounded-2xl overflow-hidden shrink-0 shadow-md cursor-pointer border ${
@@ -423,11 +447,12 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
               {story.user_name}
             </span>
           </motion.div>
-        ))}
+          );
+        })}
       </div>
 
       <AnimatePresence>
-        {activeStoryIndex !== null && stories[activeStoryIndex] && (
+        {activeStoryIndex !== null && storyGroups[activeStoryIndex]?.[activeStoryWithinGroup] && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -450,15 +475,15 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
 
               <div className="absolute inset-x-0 top-0 z-20 p-3">
                 <div className="flex gap-1.5">
-                  {stories.map((story, index) => (
+                  {storyGroups[activeStoryIndex].map((story, index) => (
                     <div key={`${story.id}-bar`} className="h-1.5 flex-1 overflow-hidden rounded-full bg-white/25">
                       <div
                         className={`h-full rounded-full transition-all duration-200 ${
-                          index < activeStoryIndex ? 'bg-white' : index === activeStoryIndex ? 'bg-white' : 'bg-transparent'
+                          index < activeStoryWithinGroup ? 'bg-white' : index === activeStoryWithinGroup ? 'bg-white' : 'bg-transparent'
                         }`}
                         style={{
                           width:
-                            index < activeStoryIndex ? '100%' : index === activeStoryIndex ? `${storyProgress}%` : '0%',
+                            index < activeStoryWithinGroup ? '100%' : index === activeStoryWithinGroup ? `${storyProgress}%` : '0%',
                         }}
                       />
                     </div>
@@ -467,8 +492,8 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
               </div>
 
               <img
-                src={stories[activeStoryIndex].media_url || stories[activeStoryIndex].user_avatar}
-                alt={`${stories[activeStoryIndex].user_name}'s story`}
+                src={storyGroups[activeStoryIndex][activeStoryWithinGroup].media_url || storyGroups[activeStoryIndex][activeStoryWithinGroup].user_avatar}
+                alt={`${storyGroups[activeStoryIndex][activeStoryWithinGroup].user_name}'s story`}
                 className="h-full w-full object-cover"
               />
 
@@ -477,14 +502,14 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
               <div className="absolute bottom-0 left-0 right-0 z-10 p-4">
                 <div className="flex items-center gap-3 mb-4">
                   <img
-                    src={stories[activeStoryIndex].user_avatar}
-                    alt={stories[activeStoryIndex].user_name}
+                    src={storyGroups[activeStoryIndex][activeStoryWithinGroup].user_avatar}
+                    alt={storyGroups[activeStoryIndex][activeStoryWithinGroup].user_name}
                     className="h-10 w-10 rounded-full border-2 border-white/60 object-cover"
                   />
                   <div>
-                    <p className="text-sm font-semibold text-white">{stories[activeStoryIndex].user_name}</p>
+                    <p className="text-sm font-semibold text-white">{storyGroups[activeStoryIndex][activeStoryWithinGroup].user_name}</p>
                     <p className="text-[10px] text-slate-200">
-                      {new Date(stories[activeStoryIndex].created_at).toLocaleTimeString([], {
+                      {new Date(storyGroups[activeStoryIndex][activeStoryWithinGroup].created_at).toLocaleTimeString([], {
                         hour: 'numeric',
                         minute: '2-digit',
                       })}
@@ -494,25 +519,26 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      const story = stories[activeStoryIndex];
+                      const story = currentViewedStory;
+                      if (!story) return;
                       const nextReaction = storyReactions[story.id] ? null : '❤️';
                       setStoryReactions((prev) => ({ ...prev, [story.id]: !prev[story.id] }));
                       void feedService.setStoryReaction(story.id, currentUser.id, nextReaction);
                     }}
-                    className={`rounded-full px-3 py-2 text-xs font-bold ${storyReactions[stories[activeStoryIndex].id] ? 'bg-rose-500 text-white' : 'bg-black/50 text-white'}`}
+                    className={`rounded-full px-3 py-2 text-xs font-bold ${currentViewedStory && storyReactions[currentViewedStory.id] ? 'bg-rose-500 text-white' : 'bg-black/50 text-white'}`}
                   >
-                    {storyReactions[stories[activeStoryIndex].id] ? 'Liked ❤️' : 'Like 🤍'}
+                    {currentViewedStory && storyReactions[currentViewedStory.id] ? 'Liked ❤️' : 'Like 🤍'}
                   </button>
                   {['👍', '❤️', '😂', '🔥'].map((emoji) => (
-                    <button key={emoji} onClick={() => { const story = stories[activeStoryIndex]; setStoryReactions((prev) => ({ ...prev, [story.id]: true })); void feedService.setStoryReaction(story.id, currentUser.id, emoji); }} className="rounded-full bg-black/50 px-2 py-2 text-sm" aria-label={`React ${emoji}`}>
+                    <button key={emoji} onClick={() => { const story = currentViewedStory; if (!story) return; setStoryReactions((prev) => ({ ...prev, [story.id]: true })); void feedService.setStoryReaction(story.id, currentUser.id, emoji); }} className="rounded-full bg-black/50 px-2 py-2 text-sm" aria-label={`React ${emoji}`}>
                       {emoji}
                     </button>
                   ))}
                   <button
-                    onClick={() => setSavedStories((prev) => ({ ...prev, [stories[activeStoryIndex].id]: !prev[stories[activeStoryIndex].id] }))}
+                    onClick={() => { if (!currentViewedStory) return; setSavedStories((prev) => ({ ...prev, [currentViewedStory.id]: !prev[currentViewedStory.id] })); }}
                     className="ml-auto rounded-full bg-black/50 px-3 py-2 text-xs font-bold text-white"
                   >
-                    {savedStories[stories[activeStoryIndex].id] ? 'Saved' : 'Save'}
+                    {currentViewedStory && savedStories[currentViewedStory.id] ? 'Saved' : 'Save'}
                   </button>
                 </div>
                 <div className="mt-2 flex gap-2">
@@ -525,7 +551,8 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                   <button
                     onClick={() => {
                       if (!storyReplyInput.trim()) return;
-                      const storyId = stories[activeStoryIndex].id;
+                      if (!currentViewedStory) return;
+                      const storyId = currentViewedStory.id;
                       void feedService.sendStoryReply(storyId, currentUser.id, storyReplyInput.trim()).then((sent) => {
                         if (!sent) return;
                         setStoryReplies((prev) => ({ ...prev, [storyId]: [...(prev[storyId] || []), storyReplyInput.trim()] }));
@@ -537,11 +564,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                     Reply
                   </button>
                 </div>
-                {!!storyReplies[stories[activeStoryIndex].id]?.length && (
-                  <p className="mt-2 text-[10px] text-slate-200">{storyReplies[stories[activeStoryIndex].id].length} reply(ies) added</p>
+                {!!currentViewedStory && !!storyReplies[currentViewedStory.id]?.length && (
+                  <p className="mt-2 text-[10px] text-slate-200">{currentViewedStory && storyReplies[currentViewedStory.id].length} reply(ies) added</p>
                 )}
-                {stories[activeStoryIndex].user_id === currentUser.id && (
-                  <p className="mt-2 text-[10px] text-slate-200">{stories[activeStoryIndex].viewer_count || 0} viewer(s)</p>
+                {currentViewedStory?.user_id === currentUser.id && (
+                  <p className="mt-2 text-[10px] text-slate-200">{currentViewedStory.viewer_count || 0} viewer(s)</p>
                 )}
               </div>
 
