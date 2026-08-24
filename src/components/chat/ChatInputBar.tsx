@@ -196,7 +196,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
   };
 
   return (
-    <div className="flex items-center p-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700">
+    <div className="flex min-w-0 flex-1 basis-full items-center p-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 sm:basis-0">
       <AnimatePresence>
         {replyingTo && (
           <motion.div
@@ -250,7 +250,7 @@ export const ChatInputBar: React.FC<ChatInputBarProps> = ({
           <input
             ref={inputRef}
             type="text"
-            className="flex-grow p-2 rounded-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
+            className="min-w-0 flex-1 p-2 rounded-full bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:focus:ring-blue-400 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400"
             placeholder="Type a message..."
             value={inputText}
             onChange={handleInputChange}

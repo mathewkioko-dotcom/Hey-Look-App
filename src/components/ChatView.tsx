@@ -1752,7 +1752,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
       <div
         ref={chatScrollRef}
         onScroll={handleScroll}
-        className={`flex-1 p-4 overflow-y-auto ${compactRows ? "space-y-2" : "space-y-4"} relative pb-28`}
+        className={`min-h-0 flex-1 p-3 sm:p-4 overflow-y-auto ${compactRows ? "space-y-2" : "space-y-4"} relative pb-28`}
       >
         <div className="text-center my-2">
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold tracking-wider bg-slate-900/90 border border-slate-800 text-cyan-400">
@@ -2550,7 +2550,7 @@ const isMe =
         {/* INLINE VOICE NOTE RECORDER PANEL (handled inside ChatInputBar) */}
 
         {/* INPUT CONTROL FIELD */}
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 sm:flex-nowrap">
           {/* MENU 1 (+) ATTACHMENT DRAWER TOGGLE — opens the new AttachmentHub */}
           <button
             onClick={() => {

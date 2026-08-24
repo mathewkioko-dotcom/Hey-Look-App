@@ -619,7 +619,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
   );
 
   return (
-    <div className="h-[calc(100vh-9.5rem)] md:h-[calc(100vh-8rem)] flex flex-col md:flex-row overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl bg-white dark:bg-slate-900 relative">
+    <div className="h-[calc(100dvh-10rem)] min-h-0 md:h-[calc(100vh-8rem)] flex flex-col md:flex-row overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xl bg-white dark:bg-slate-900 relative">
       {/* LEFT SIDEBAR: Conversation list */}
       <div
         className={`w-full md:w-80 lg:w-96 flex flex-col border-r border-slate-200 dark:border-slate-800 ${
@@ -856,7 +856,7 @@ export const ChatsTab: React.FC<ChatsTabProps> = ({
 
       {/* RIGHT CHAT VIEW AREA */}
       <div
-        className={`flex-1 flex flex-col h-full ${!selectedConvId && "hidden md:flex"}`}
+        className={`min-w-0 min-h-0 flex-1 flex flex-col h-full ${!selectedConvId && "hidden md:flex"}`}
       >
         {activeConv && activeConv.user ? (
 <ChatView
