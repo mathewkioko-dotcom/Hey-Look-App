@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users } from "lucide-react";
+import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus } from "lucide-react";
 import { FeedPost, Profile } from "../../types";
 import { feedService, StoryItem } from "../../services/feedService";
 import { supabase } from "../../lib/supabase";
@@ -22,6 +22,8 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
   const [otherUsers, setOtherUsers] = useState<Profile[]>([]);
   const [newPostText, setNewPostText] = useState("");
   const [isPublishing, setIsPublishing] = useState(false);
+  const [showStoryComposer, setShowStoryComposer] = useState(false);
+  const [storyUrl, setStoryUrl] = useState("");
 
   const loadHome = async () => {
     setLoading(true);
@@ -87,8 +89,9 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
       </header>
 
       <section className="flex gap-3 overflow-x-auto px-1 pb-1 scrollbar-none">
-        <button onClick={() => setActiveStory({ id: "create", user_id: currentUser.id, user_name: currentUser.full_name, user_avatar: currentUser.avatar_url, media_url: currentUser.avatar_url, created_at: new Date().toISOString() })} className="flex w-20 shrink-0 flex-col items-center gap-1 text-center">
+        <button onClick={() => setShowStoryComposer(true)} className="relative flex w-20 shrink-0 flex-col items-center gap-1 text-center">
           <img src={currentUser.avatar_url} alt={currentUser.full_name} className="h-14 w-14 rounded-full border-2 border-cyan-400 object-cover" />
+          <span className="absolute left-12 top-9 flex h-6 w-6 items-center justify-center rounded-full border-2 border-slate-950 bg-cyan-500 text-slate-950"><Plus className="h-4 w-4" /></span>
           <span className="w-full truncate text-[10px] text-slate-300">Your story</span>
         </button>
         {stories.filter((story) => story.user_id !== currentUser.id).map((story) => (
@@ -130,6 +133,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark }) => {
       </section>
 
       {activeStory && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4" onClick={() => setActiveStory(null)}><div className="relative h-[75vh] w-full max-w-sm overflow-hidden rounded-3xl bg-slate-950" onClick={(event) => event.stopPropagation()}><button onClick={() => setActiveStory(null)} className="absolute right-3 top-3 z-10 rounded-full bg-black/50 p-2 text-white"><X className="h-5 w-5" /></button><img src={activeStory.media_url || activeStory.user_avatar} alt={activeStory.user_name} className="h-full w-full object-cover" /><div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 p-4 pt-16"><p className="text-sm font-bold text-white">{activeStory.user_name}</p><p className="text-[10px] text-slate-300">{new Date(activeStory.created_at).toLocaleString()}</p></div></div></div>}
+      {showStoryComposer && <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80 p-4" onClick={() => setShowStoryComposer(false)}><div className="w-full max-w-sm space-y-4 rounded-3xl bg-slate-900 p-5" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between"><h3 className="font-bold text-white">Add Story</h3><button onClick={() => setShowStoryComposer(false)} className="text-slate-400"><X className="h-5 w-5" /></button></div><input value={storyUrl} onChange={(event) => setStoryUrl(event.target.value)} placeholder="Paste story image URL..." className="w-full rounded-xl bg-slate-950 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => { if (!storyUrl.trim() || isPublishing) return; setIsPublishing(true); void feedService.createStory(currentUser.id, storyUrl.trim()).then((success) => { if (success) { setStoryUrl(""); setShowStoryComposer(false); void loadHome(); } setIsPublishing(false); }); }} disabled={!storyUrl.trim() || isPublishing} className="w-full rounded-xl bg-cyan-500 py-3 text-xs font-bold text-slate-950 disabled:opacity-40">{isPublishing ? "Publishing..." : "Publish Story"}</button></div></div>}
     </div>
   );
 };

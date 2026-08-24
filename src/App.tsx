@@ -9,6 +9,38 @@ import { ensureProfile } from "./services/chatService.profiles";
 
 type AppStep = "splash" | "auth" | "main";
 
+class AppErrorBoundary extends React.Component<
+  React.PropsWithChildren,
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="min-h-screen bg-slate-950 px-6 py-16 text-center text-white">
+          <h1 className="text-xl font-bold">HeyLook could not open</h1>
+          <p className="mx-auto mt-2 max-w-lg text-sm text-slate-400">
+            {this.state.error.message || "An unexpected error occurred after sign-in."}
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-6 rounded-xl bg-cyan-500 px-4 py-2 text-sm font-bold text-slate-950"
+          >
+            Reload HeyLook
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   const [step, setStep] = useState<AppStep>("splash");
   const [isDark, setIsDark] = useState<boolean>(true); // Sleek dark mode default as requested
@@ -129,6 +161,7 @@ export default function App() {
   };
 
   return (
+    <AppErrorBoundary>
     <div
       className={
         isDark
@@ -160,5 +193,6 @@ export default function App() {
         </CallProvider>
       )}
     </div>
+    </AppErrorBoundary>
   );
 }
