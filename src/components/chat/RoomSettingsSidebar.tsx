@@ -99,46 +99,46 @@ export const RoomSettingsSidebar: React.FC<RoomSettingsSidebarProps> = ({
           </div>
 
           {/* Category Tabs */}
-          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 overflow-x-auto">
             <button
               onClick={() => onTabChange("security")}
-              className={`px-2 py-1 rounded-lg font-bold ${
+              className={`px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all ${
                 activeTab === "security"
-                  ? "bg-cyan-500/20 text-cyan-300"
-                  : "text-slate-400"
+                  ? "bg-cyan-600 text-white shadow-lg shadow-cyan-500/30"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
               }`}
             >
-              Security
+              🔒 Security
             </button>
             <button
               onClick={() => onTabChange("efficiency")}
-              className={`px-2 py-1 rounded-lg font-bold ${
+              className={`px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all ${
                 activeTab === "efficiency"
-                  ? "bg-indigo-500/20 text-indigo-300"
-                  : "text-slate-400"
+                  ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/30"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
               }`}
             >
-              Efficiency
+              ⚡ Efficiency
             </button>
             <button
               onClick={() => onTabChange("visual")}
-              className={`px-2 py-1 rounded-lg font-bold ${
+              className={`px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all ${
                 activeTab === "visual"
-                  ? "bg-emerald-500/20 text-emerald-300"
-                  : "text-slate-400"
+                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/30"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
               }`}
             >
-              Visual
+              🎨 Visual
             </button>
             <button
               onClick={() => onTabChange("automations")}
-              className={`px-2 py-1 rounded-lg font-bold ${
+              className={`px-3 py-2 rounded-lg font-bold text-sm whitespace-nowrap transition-all ${
                 activeTab === "automations"
-                  ? "bg-purple-500/20 text-purple-300"
-                  : "text-slate-400"
+                  ? "bg-purple-600 text-white shadow-lg shadow-purple-500/30"
+                  : "bg-slate-800 text-slate-300 hover:bg-slate-700"
               }`}
             >
-              Auto
+              🤖 Auto
             </button>
           </div>
 
@@ -183,13 +183,21 @@ export const RoomSettingsSidebar: React.FC<RoomSettingsSidebarProps> = ({
                 <span>Cryptographic Security Barcode</span>
               </button>
 
-              <button
-                onClick={onClearHistory}
-                className="w-full p-2.5 rounded-xl bg-slate-950 border border-slate-800 flex items-center gap-2 text-rose-300 hover:border-rose-500/50"
-              >
-                <Trash2 className="w-4 h-4 text-rose-400" />
-                <span>Clear Chat Canvas</span>
-              </button>
+              <div className="p-3 rounded-2xl bg-rose-950/40 border border-rose-500/30 space-y-2">
+                <p className="text-[11px] font-bold text-rose-300 uppercase tracking-wide">⚠️ Danger Zone</p>
+                <button
+                  onClick={() => {
+                    if (window.confirm("Clear all messages in this chat from your device? The other person's messages will not be affected.")) {
+                      onClearHistory();
+                    }
+                  }}
+                  className="w-full p-3 rounded-xl bg-rose-600 hover:bg-rose-500 border border-rose-400 flex items-center justify-center gap-2 text-white font-bold text-sm transition-all shadow-lg shadow-rose-500/20 hover:shadow-rose-500/40"
+                >
+                  <Trash2 className="w-5 h-5" />
+                  <span>Clear Chat (Local Only)</span>
+                </button>
+                <p className="text-[10px] text-rose-300/70">Deletes messages from your device only. Other user's chat remains unchanged.</p>
+              </div>
             </div>
           )}
 

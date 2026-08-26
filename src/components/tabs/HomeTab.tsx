@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus, Pause, Play, Radio, Film } from "lucide-react";
+import { Heart, MessageCircle, Share2, Bookmark, X, Home, Send, Users, Plus, Pause, Play, Radio, Film, Trash2 } from "lucide-react";
 import { CallLog, FeedPost, Profile, Beacon, BeaconComment, ReelItem } from "../../types";
 import { feedService, StoryItem } from "../../services/feedService";
 import { supabase } from "../../lib/supabase";
@@ -20,6 +20,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
   const [stories, setStories] = useState<StoryItem[]>([]);
   const [activeStory, setActiveStory] = useState<StoryItem | null>(null);
   const [joinedFleet, setJoinedFleet] = useState<Record<string, boolean>>({});
+  const [pendingFleet, setPendingFleet] = useState<Record<string, boolean>>({});
   const [savedPosts, setSavedPosts] = useState<Record<string, boolean>>({});
   const [commentOpen, setCommentOpen] = useState<Record<string, boolean>>({});
   const [commentText, setCommentText] = useState<Record<string, string>>({});
@@ -63,6 +64,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
     if (authorIds.length) {
       const { data } = await supabase.from("follows").select("following_id, status").eq("follower_id", currentUser.id).in("following_id", authorIds);
       setJoinedFleet(Object.fromEntries((data || []).map((row: any) => [row.following_id, row.status === "accepted"])));
+      setPendingFleet(Object.fromEntries((data || []).map((row: any) => [row.following_id, row.status === "pending"])));
     }
     setLoading(false);
   };
@@ -91,6 +93,17 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
     setStoryPaused(false);
     setActiveStory(storyGroups[index]?.[0] || null);
   };
+
+  const handleDeleteStory = async () => {
+    if (!viewedStory || viewedStory.user_id !== currentUser.id) return;
+    if (!window.confirm("Delete this story? This cannot be undone.")) return;
+
+    const deleted = await feedService.deleteStory(viewedStory.id, currentUser.id);
+    if (!deleted) return;
+
+    setStories((previous) => previous.filter((item) => item.id !== viewedStory.id));
+    setActiveStory(null);
+  };
   const toggleLike = async (post: FeedPost) => {
     const nextLiked = !post.is_liked;
     setPosts((items) => items.map((item) => item.id === post.id ? { ...item, is_liked: nextLiked, likes_count: Math.max(0, item.likes_count + (nextLiked ? 1 : -1)) } : item));
@@ -100,11 +113,17 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
   const toggleFleet = async (post: FeedPost) => {
     if (!post.user_id || post.user_id === currentUser.id) return;
     const accepted = joinedFleet[post.user_id];
+    const pending = pendingFleet[post.user_id];
+    if (pending) return;
     setJoinedFleet((items) => ({ ...items, [post.user_id as string]: !accepted }));
+    setPendingFleet((items) => ({ ...items, [post.user_id as string]: !accepted }));
     const result = accepted
       ? await supabase.from("follows").delete().eq("follower_id", currentUser.id).eq("following_id", post.user_id)
       : await supabase.from("follows").delete().eq("follower_id", currentUser.id).eq("following_id", post.user_id).in("status", ["rejected", "ignored"]).then(async (cleanup) => cleanup.error ? cleanup : supabase.from("follows").insert({ follower_id: currentUser.id, following_id: post.user_id, status: "pending" }));
-    if (result.error) setJoinedFleet((items) => ({ ...items, [post.user_id as string]: accepted }));
+    if (result.error) {
+      setJoinedFleet((items) => ({ ...items, [post.user_id as string]: accepted }));
+      setPendingFleet((items) => ({ ...items, [post.user_id as string]: false }));
+    }
   };
 
   const addComment = async (post: FeedPost) => {
@@ -153,18 +172,18 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
   };
 
   return (
-    <div className="mx-auto max-w-2xl space-y-5 pb-12">
+    <div className="mx-auto grid max-w-6xl grid-cols-1 gap-5 pb-12 lg:grid-cols-[minmax(0,1fr)_19rem]">
       {callNotice && (
         <div className="fixed inset-x-4 bottom-24 z-50 mx-auto max-w-sm rounded-2xl bg-slate-900/95 px-4 py-2.5 text-center text-xs font-bold text-slate-100 shadow-2xl">
           {callNotice}
         </div>
       )}
-      <header className="flex items-center gap-2 px-2">
+      <header className="flex items-center gap-2 px-2 lg:col-span-2">
         <Home className="h-5 w-5 text-cyan-400" />
         <div><h2 className="text-xl font-bold text-slate-100">Home</h2><p className="text-xs text-slate-400">Stories and updates from HeyLook</p></div>
       </header>
 
-      <section className="flex gap-3 overflow-x-auto px-1 pb-1 scrollbar-none">
+      <section className="flex gap-3 overflow-x-auto px-1 pb-1 scrollbar-none lg:col-span-2">
         <button onClick={() => setShowStoryComposer(true)} className="relative flex w-20 shrink-0 flex-col items-center gap-1 text-center">
           <img src={currentUser.avatar_url} alt={currentUser.full_name} className="h-14 w-14 rounded-full border-2 border-cyan-400 object-cover" />
           <span className="absolute left-12 top-9 flex h-6 w-6 items-center justify-center rounded-full border-2 border-slate-950 bg-cyan-500 text-slate-950"><Plus className="h-4 w-4" /></span>
@@ -177,9 +196,19 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
             <span className="w-full truncate text-[10px] text-slate-300">{story.user_name}</span>
           </button>;
         })}
-      </section>
+       </section>
+
+       {activeStory && viewedStory?.user_id === currentUser.id && (
+         <button
+           onClick={() => void handleDeleteStory()}
+           className="fixed right-16 top-6 z-[100] rounded-full bg-rose-500/90 p-2 text-white shadow-lg"
+           aria-label="Delete story"
+         >
+           <Trash2 className="h-5 w-5" />
+         </button>
+       )}
       {homeBeacons.length > 0 && (
-        <section className="flex gap-3 overflow-x-auto px-1 pb-1 scrollbar-none">
+        <section className="flex gap-3 overflow-x-auto px-1 pb-1 scrollbar-none lg:col-span-2">
           {homeBeacons.map((beacon, index) => (
             <button
               key={beacon.id}
@@ -202,7 +231,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
       )}
 
       {homeReels.length > 0 && (
-        <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <section className={`rounded-2xl border p-4 lg:col-span-2 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
           <div className="mb-3 flex items-center gap-2"><Film className="h-4 w-4 text-pink-400" /><h3 className="text-sm font-bold text-slate-100">Reels</h3></div>
           <div className="flex gap-3 overflow-x-auto pb-1 scrollbar-none">
             {homeReels.slice(0, 12).map((reel) => (
@@ -221,21 +250,21 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
           </div>
         </section>
       )}
-      <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+      <section className={`rounded-2xl border p-4 lg:col-start-2 lg:row-start-5 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
         <div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-bold text-slate-100">Calls</h3><span className="text-[10px] text-slate-500">Recent log</span></div>
         <div className="space-y-2">{recentCalls.length === 0 ? <p className="text-xs text-slate-500">No calls recorded yet.</p> : recentCalls.map((call) => { const incoming = call.receiver_id === currentUser.id; const name = incoming ? call.caller_name : "You"; return <div key={call.id} className="flex items-center gap-3 rounded-xl bg-slate-950 p-3"><img src={call.caller_avatar} alt={name} className="h-9 w-9 rounded-full object-cover" /><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-200">{name} <span className={call.status === "missed" ? "text-rose-400" : "text-emerald-400"}>{call.status === "missed" ? "Missed" : "Connected"}</span></p><p className="text-[10px] text-slate-500">{call.call_type === "video" ? "Video" : "Voice"} • {new Date(call.created_at).toLocaleString()} {call.duration ? `• ${call.duration}` : ""}</p></div><button onClick={() => void callBack(call)} className="rounded-xl bg-cyan-500 px-3 py-2 text-[10px] font-bold text-slate-950">Call</button></div>; })}</div>
       </section>
 
-      <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+      <section className={`rounded-2xl border p-4 lg:col-start-1 lg:row-start-5 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
         <div className="flex gap-2"><img src={currentUser.avatar_url} alt={currentUser.full_name} className="h-9 w-9 rounded-full object-cover" /><input value={newPostText} onChange={(event) => setNewPostText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void publishTextPost(); } }} placeholder="Share an update with the fleet..." className="min-w-0 flex-1 rounded-xl bg-slate-950 px-3 py-2 text-xs text-white outline-none" /><button onClick={() => void publishTextPost()} disabled={!newPostText.trim() || isPublishing} className="rounded-xl bg-cyan-500 px-3 text-slate-950 disabled:opacity-40"><Send className="h-4 w-4" /></button></div>
       </section>
 
       {loading ? <p className="py-12 text-center text-xs text-slate-400">Loading Home...</p> : posts.slice(0, 20).map((post) => (
-        <article key={post.id} className={`overflow-hidden rounded-2xl border ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+        <article key={post.id} className={`overflow-hidden rounded-2xl border lg:col-start-1 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
           <div className="flex items-center gap-3 p-4">
             <img src={post.author.avatar} alt={post.author.name} className="h-10 w-10 rounded-full object-cover" />
             <div className="min-w-0 flex-1"><p className="truncate text-sm font-bold text-slate-100">{post.author.name}</p><p className="text-[10px] text-slate-400">{post.created_at}</p></div>
-            {post.user_id && post.user_id !== currentUser.id && <button onClick={() => void toggleFleet(post)} className={`rounded-xl px-3 py-1.5 text-[10px] font-bold ${joinedFleet[post.user_id] ? "bg-slate-800 text-slate-300" : "bg-cyan-500 text-slate-950"}`}>{joinedFleet[post.user_id] ? "Mutiny" : "Join Fleet"}</button>}
+            {post.user_id && post.user_id !== currentUser.id && <button onClick={() => void toggleFleet(post)} disabled={pendingFleet[post.user_id]} className={`rounded-xl px-3 py-1.5 text-[10px] font-bold ${joinedFleet[post.user_id] || pendingFleet[post.user_id] ? "bg-slate-800 text-slate-300" : "bg-cyan-500 text-slate-950"}`}>{joinedFleet[post.user_id] ? "Mutiny" : pendingFleet[post.user_id] ? "Request Pending" : "Join Fleet"}</button>}
           </div>
           <p className="px-4 pb-3 text-sm leading-relaxed text-slate-200 whitespace-pre-line">{post.content}</p>
           {post.image_url && <img src={post.image_url} alt="Post" className="max-h-80 w-full object-cover" />}
@@ -250,7 +279,7 @@ export const HomeTab: React.FC<HomeTabProps> = ({ currentUser, isDark, onOpenRee
         </article>
       ))}
 
-      <section className={`rounded-2xl border p-4 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
+      <section className={`rounded-2xl border p-4 lg:col-start-2 lg:row-start-6 ${isDark ? "border-slate-800 bg-slate-900" : "border-slate-200 bg-white"}`}>
         <div className="mb-3 flex items-center gap-2"><Users className="h-4 w-4 text-cyan-400" /><h3 className="text-sm font-bold text-slate-100">Other users</h3></div>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">{otherUsers.map((profile) => <div key={profile.id} className="flex min-w-0 items-center gap-2"><button className="min-w-0" onClick={() => setProfileToView(profile)}><img src={profile.avatar_url} alt={profile.full_name} className="h-11 w-11 rounded-full object-cover ring-2 ring-slate-700" /></button><div className="min-w-0 flex-1"><button onClick={() => setProfileToView(profile)} className="block w-full truncate text-left text-[10px] font-bold text-slate-300">{profile.full_name}</button><button onClick={() => { const accepted = joinedFleet[profile.id]; setJoinedFleet((items) => ({ ...items, [profile.id]: !accepted })); void (accepted ? supabase.from('follows').delete().eq('follower_id', currentUser.id).eq('following_id', profile.id) : supabase.from('follows').insert({ follower_id: currentUser.id, following_id: profile.id, status: 'pending' })); }} className="text-[10px] font-bold text-cyan-400">{joinedFleet[profile.id] ? 'Mutiny' : 'Join Fleet'}</button></div></div>)}</div>
         {!otherUsers.length && <p className="text-xs text-slate-500">No other users available yet.</p>}

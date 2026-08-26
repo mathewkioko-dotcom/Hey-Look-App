@@ -233,6 +233,18 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
     showToast(saved ? "Profile saved ✓" : "Profile could not be saved");
   };
 
+  const handleSaveUsername = async () => {
+    if (!handleInput.trim()) {
+      showToast("Username cannot be empty");
+      return;
+    }
+    if (handleInput === currentUser.username) {
+      showToast("No changes to save");
+      return;
+    }
+    await saveProfile({ username: handleInput.trim() });
+  };
+
   const handleAvatarFile = async (file?: File) => {
     if (!file || !file.type.startsWith("image/")) {
       showToast("Please choose an image file");
@@ -422,7 +434,7 @@ export const ProfileSettingsModal: React.FC<ProfileSettingsModalProps> = ({
             </div>
             <p className="text-[10px] text-slate-500">Only letters, numbers, and underscores.</p>
           </div>
-          <button onClick={() => { saveProfile({ username: handleInput }); }} className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer">Save Handle</button>
+          <button onClick={handleSaveUsername} className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer">Save Handle</button>
         </div>
       );
     }

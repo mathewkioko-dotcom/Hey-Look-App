@@ -31,6 +31,15 @@ function mapProfileRow(item: any): Profile {
  */
 export async function fetchProfileById(userId: string): Promise<Profile | null> {
   if (!userId) return null;
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user || session.user.id !== userId) {
+    return null;
+  }
+
   try {
     const { data, error } = await supabase
       .from("profiles")
@@ -39,7 +48,9 @@ export async function fetchProfileById(userId: string): Promise<Profile | null> 
       .maybeSingle();
 
     if (error || !data) {
-      console.warn("[ChatService] fetchProfileById error:", error?.message);
+      if (error && error.message && !/row-level security|policy/i.test(error.message)) {
+        console.warn("[ChatService] fetchProfileById error:", error.message);
+      }
       return null;
     }
     return mapProfileRow(data);
@@ -53,6 +64,14 @@ export async function fetchProfileById(userId: string): Promise<Profile | null> 
 export async function ensureProfile(profile: Profile): Promise<void> {
   if (!profile?.id) return;
 
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.user || session.user.id !== profile.id) {
+    return;
+  }
+
   const { error } = await supabase.from("profiles").upsert(
     {
       id: profile.id,
@@ -63,7 +82,7 @@ export async function ensureProfile(profile: Profile): Promise<void> {
     { onConflict: "id" },
   );
 
-  if (error) {
+  if (error && !/row-level security|policy/i.test(error.message)) {
     console.warn("[ChatService] Profile sync error:", error.message);
   }
 }

@@ -599,7 +599,20 @@ export async function deleteMessage(messageId: string): Promise<boolean> {
 }
 
 /**
- * Clear chat history between two users
+ * Clear chat history locally on this device only.
+ * Messages remain in database for the other person.
+ * This is a LOCAL-ONLY operation that does not affect the other user's chat.
+ */
+export async function clearHistoryLocal(): Promise<boolean> {
+  // This function just returns true — the UI clears local messages in ChatView.tsx
+  // by setting setMessages([]) without touching the database.
+  return true;
+}
+
+/**
+ * DEPRECATED: Use clearHistoryLocal() instead.
+ * Legacy function kept for backward compatibility.
+ * Now returns true without deleting from database (local-only behavior).
  */
 export async function clearHistory(
   currentUserId: string,
@@ -613,20 +626,12 @@ export async function clearHistory(
   ) {
     return false;
   }
-  try {
-    const currentUserIdQuoted = quoteValue(currentUserId);
-    const targetUserIdQuoted = quoteValue(targetUserId);
-    const filterStr = `and(sender_id.eq.${currentUserIdQuoted},receiver_id.eq.${targetUserIdQuoted}),and(sender_id.eq.${targetUserIdQuoted},receiver_id.eq.${currentUserIdQuoted})`;
-
-    const { error } = await supabase.from("messages").delete().or(filterStr);
-    if (error) {
-      console.warn("[ChatService] Error clearing history:", error.message);
-    }
-    return !error;
-  } catch (err) {
-    console.warn("[ChatService] Exception clearing history:", err);
-    return false;
-  }
+  // LOCAL-ONLY: Don't delete from database anymore.
+  // Users can clear their local view without affecting the other person's chat.
+  console.log(
+    `[ChatService] Clearing local chat view for ${currentUserId} <-> ${targetUserId}. Database messages remain unchanged.`
+  );
+  return true;
 }
 
 // ============================================================================

@@ -10,29 +10,56 @@ interface SplashScreenProps {
 
 export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish, isDark }) => {
   const [statusText, setStatusText] = useState('Initializing HeyLook Core...');
-  const [progress, setProgress] = useState(15);
+  const [progress, setProgress] = useState(0);
+  const [isComplete, setIsComplete] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
 
     const runAuthCheck = async () => {
-      // Step 1: Initializing UI
-      await new Promise((r) => setTimeout(r, 600));
+      // Step 1: Initialize UI
+      await new Promise((r) => setTimeout(r, 300));
       if (!isMounted) return;
-      setProgress(45);
-      setStatusText('Connecting to Supabase Auth...');
+      setProgress(10);
+
+      await new Promise((r) => setTimeout(r, 400));
+      if (!isMounted) return;
+      setProgress(25);
+      setStatusText('Loading UI Components...');
+
+      await new Promise((r) => setTimeout(r, 400));
+      if (!isMounted) return;
+      setProgress(40);
+      setStatusText('Connecting to Supabase...');
 
       try {
+        // Fetch session
         const { data: { session } } = await supabase.auth.getSession();
         
-        await new Promise((r) => setTimeout(r, 700));
-        if (!isMounted) return;
-        setProgress(85);
-        setStatusText(session ? 'Session Restored! Opening HeyLook...' : 'Ready for Authentication');
-
         await new Promise((r) => setTimeout(r, 500));
         if (!isMounted) return;
+        setProgress(60);
+        setStatusText('Validating Session...');
+
+        await new Promise((r) => setTimeout(r, 400));
+        if (!isMounted) return;
+        setProgress(75);
+        setStatusText('Loading User Profile...');
+
+        await new Promise((r) => setTimeout(r, 400));
+        if (!isMounted) return;
+        setProgress(90);
+        setStatusText('Preparing Workspace...');
+
+        await new Promise((r) => setTimeout(r, 300));
+        if (!isMounted) return;
         setProgress(100);
+        setStatusText(session ? '✓ Ready!' : '✓ Complete!');
+        setIsComplete(true);
+
+        // Show 100% for a moment before finishing
+        await new Promise((r) => setTimeout(r, 800));
+        if (!isMounted) return;
 
         if (session) {
           onFinish(true, session.user);
@@ -43,6 +70,9 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish, isDark }) 
         console.warn('Supabase auth check error:', error);
         if (isMounted) {
           setProgress(100);
+          setStatusText('✓ Ready!');
+          setIsComplete(true);
+          await new Promise((r) => setTimeout(r, 800));
           onFinish(false);
         }
       }
@@ -144,40 +174,64 @@ export const SplashScreen: React.FC<SplashScreenProps> = ({ onFinish, isDark }) 
           initial={{ y: 20, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           transition={{ delay: 0.4 }}
-          className={`text-sm font-medium mb-8 ${isDark ? 'text-slate-400' : 'text-slate-600'}`}
+          className={`w-screen max-w-none whitespace-nowrap text-center text-sm sm:text-base font-bold tracking-[0.58em] mb-8 ${isDark ? 'text-slate-300' : 'text-slate-700'}`}
         >
-          WhatsApp • Facebook • Instagram • All in One
+         - M A T H E W     P R E S E N T S -
         </motion.p>
 
         {/* Loading Progress Bar */}
         <div className="w-full space-y-2 mb-4">
-          <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2 overflow-hidden">
+          <div className="w-full bg-slate-200 dark:bg-slate-800 rounded-full h-2.5 overflow-hidden">
             <motion.div
-              className="bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 h-full rounded-full"
+              className={`h-full rounded-full transition-all ${
+                isComplete
+                  ? 'bg-gradient-to-r from-emerald-400 to-cyan-400'
+                  : 'bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500'
+              }`}
               initial={{ width: '0%' }}
               animate={{ width: `${progress}%` }}
-              transition={{ duration: 0.4 }}
+              transition={{ duration: 0.5, ease: 'easeOut' }}
             />
           </div>
-          <div className="flex items-center justify-between text-xs font-mono text-slate-500 dark:text-slate-400">
-            <span className="flex items-center gap-1">
-              <Radio className="w-3 h-3 text-indigo-500 animate-ping" />
+          <div className="flex items-center justify-between text-xs font-mono">
+            <span className={`flex items-center gap-1 ${
+              isComplete
+                ? 'text-emerald-500 dark:text-emerald-400'
+                : 'text-slate-500 dark:text-slate-400'
+            }`}>
+              {isComplete ? (
+                <span className="inline-block animate-bounce">✓</span>
+              ) : (
+                <Radio className="w-3 h-3 text-indigo-500 animate-ping" />
+              )}
               {statusText}
             </span>
-            <span>{progress}%</span>
+            <motion.span
+              className={`font-bold ${
+                progress === 100
+                  ? 'text-emerald-500 dark:text-emerald-400'
+                  : 'text-slate-500 dark:text-slate-400'
+              }`}
+              animate={{ scale: progress === 100 ? [1, 1.1, 1] : 1 }}
+              transition={{ duration: 0.6, repeat: progress === 100 ? Infinity : 0 }}
+            >
+              {progress}%
+            </motion.span>
           </div>
         </div>
 
-        {/* Direct Skip Button if user wants to bypass splash instantly */}
-        <motion.button
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1 }}
-          onClick={() => onFinish(false)}
-          className="mt-4 text-xs font-medium text-indigo-500 hover:underline cursor-pointer focus:outline-none"
-        >
-          Skip Loading →
-        </motion.button>
+        {/* Direct Skip Button - only show during loading (not at 100%) */}
+        {progress < 100 && (
+          <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.5 }}
+            onClick={() => onFinish(false)}
+            className="mt-4 text-xs font-medium text-indigo-500 hover:text-indigo-400 hover:underline cursor-pointer focus:outline-none transition-colors"
+          >
+            Skip to HeyLook →
+          </motion.button>
+        )}
       </div>
     </div>
   );

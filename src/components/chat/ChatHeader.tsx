@@ -15,6 +15,7 @@ import {
   Sparkles,
   Activity,
   Radio,
+  Trash2,
 } from "lucide-react";
 import { AVAILABLE_MODELS, ModelOption } from "../../services/aiRouterService";
 import { getLivePresenceLabel } from "../../hooks/usePresence";
@@ -44,6 +45,7 @@ interface ChatHeaderProps {
   onUnpin: () => void;
   anchoredBeacon?: Beacon | null;
   onOpenBeaconViewer?: () => void;
+  onClearHistory?: () => void;
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -70,6 +72,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   onUnpin,
   anchoredBeacon,
   onOpenBeaconViewer,
+  onClearHistory,
 }) => {
   return (
     <div className="p-3 px-4 border-b border-slate-800/80 bg-slate-900/90 backdrop-blur-xl flex flex-col gap-2 z-20 shrink-0">
@@ -283,6 +286,21 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
           >
             <Search className="w-4 h-4" />
           </button>
+
+          {/* Clear Chat Button */}
+          {onClearHistory && (
+            <button
+              onClick={() => {
+                if (window.confirm("Clear all messages in this chat from your device?")) {
+                  onClearHistory();
+                }
+              }}
+              className="p-2 rounded-xl text-slate-300 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Clear Chat (local only)"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          )}
 
           {/* Top-Right Room Settings Toggle */}
           <button

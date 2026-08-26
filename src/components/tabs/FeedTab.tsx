@@ -16,9 +16,10 @@ import {
   BarChart2,
   Palette,
   Send,
-  Plus
+  Plus,
+  Trash2
 } from 'lucide-react';
-import { FeedPost, Profile, ReactionType, PollData, PrivacyLevel } from '../../types';
+import { FeedPost, Profile, ReactionType, PollData, PrivacyLevel, Beacon } from '../../types';
 import { feedService, StoryItem } from '../../services/feedService';
 import { ReactionPicker, REACTION_CONFIG } from '../ReactionPicker';
 import { ReactionBadgeArray } from '../ReactionBadgeArray';
@@ -40,6 +41,7 @@ export const CANVAS_GRADIENTS: { id: string; name: string; css: string }[] = [
 export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   const [posts, setPosts] = useState<FeedPost[]>([]);
   const [stories, setStories] = useState<StoryItem[]>([]);
+  const [beacons, setBeacons] = useState<Beacon[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Composer state
@@ -78,6 +80,11 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   const [storyReplyInput, setStoryReplyInput] = useState('');
   const [savedStories, setSavedStories] = useState<Record<string, boolean>>({});
   const [storyFileName, setStoryFileName] = useState('');
+  const [storyFileType, setStoryFileType] = useState<'image' | 'video'>('image');
+  const [storyCropMode, setStoryCropMode] = useState<'fill' | 'cover' | 'fit'>('cover');
+  const [storyTrimStart, setStoryTrimStart] = useState(0);
+  const [storyTrimEnd, setStoryTrimEnd] = useState(100);
+  const [storyExpiryMinutes, setStoryExpiryMinutes] = useState(1440);
 
   // Story viewer state
   const [activeStoryIndex, setActiveStoryIndex] = useState<number | null>(null);
@@ -88,12 +95,14 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
   // Load Real Supabase Posts & Stories
   const loadData = async () => {
     setIsLoading(true);
-    const [fetchedPosts, fetchedStories] = await Promise.all([
+    const [fetchedPosts, fetchedStories, fetchedBeacons] = await Promise.all([
       feedService.fetchPosts(currentUser.id),
       feedService.fetchStories(currentUser.id),
+      feedService.fetchActiveBeacons(currentUser.id),
     ]);
     setPosts(fetchedPosts);
     setStories(fetchedStories);
+    setBeacons(fetchedBeacons);
     setIsLoading(false);
   };
 
@@ -267,10 +276,17 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
+    const isVideo = file.type.startsWith('video/');
+    setStoryFileType(isVideo ? 'video' : 'image');
+
     const reader = new FileReader();
     reader.onload = () => {
       setStoryMediaInput(String(reader.result || ''));
       setStoryFileName(file.name);
+      if (isVideo) {
+        setStoryTrimStart(0);
+        setStoryTrimEnd(100);
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -284,7 +300,14 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
       const success = await feedService.createStory(
         currentUser.id,
         storyMediaInput.trim(),
-        storyPrivacyLevel
+        storyPrivacyLevel,
+        {
+          expiresAt: new Date(Date.now() + Math.max(60000, storyExpiryMinutes * 60 * 1000)).toISOString(),
+          mediaType: storyFileType,
+          cropMode: storyCropMode,
+          trimStart: storyTrimStart,
+          trimEnd: storyTrimEnd,
+        }
       );
 
       if (success) {
@@ -318,6 +341,18 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
     setActiveStoryIndex(null);
     setActiveStoryWithinGroup(0);
     setStoryProgress(0);
+  };
+
+  const handleDeleteStory = async () => {
+    const story = currentViewedStory;
+    if (!story || story.user_id !== currentUser.id) return;
+    if (!window.confirm('Delete this story? This cannot be undone.')) return;
+
+    const deleted = await feedService.deleteStory(story.id, currentUser.id);
+    if (!deleted) return;
+
+    setStories((previous) => previous.filter((item) => item.id !== story.id));
+    closeStory();
   };
 
   const goToStory = (offset: number) => {
@@ -540,6 +575,15 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
                   >
                     {currentViewedStory && savedStories[currentViewedStory.id] ? 'Saved' : 'Save'}
                   </button>
+                  {currentViewedStory?.user_id === currentUser.id && (
+                    <button
+                      onClick={() => void handleDeleteStory()}
+                      className="rounded-full bg-rose-500/80 px-3 py-2 text-xs font-bold text-white"
+                      aria-label="Delete story"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
                 <div className="mt-2 flex gap-2">
                   <input
@@ -798,19 +842,82 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
           <p className="text-xs font-mono">Fetching Supabase Social Stream...</p>
         </div>
       ) : posts.length === 0 ? (
-        <div className="p-10 text-center rounded-3xl bg-slate-900/60 border border-slate-800 space-y-4">
-          <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mx-auto border border-cyan-500/20">
-            <Sparkles className="w-7 h-7" />
+        <div className="space-y-6">
+          {/* Empty State Message */}
+          <div className="p-10 text-center rounded-3xl bg-slate-900/60 border border-slate-800 space-y-4">
+            <div className="w-14 h-14 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mx-auto border border-cyan-500/20">
+              <Sparkles className="w-7 h-7" />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-slate-200">No social posts yet</h3>
+              <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
+                Be the first to share an update with the HeyLook community! Write a post above.
+              </p>
+            </div>
           </div>
-          <div>
-            <h3 className="text-lg font-bold text-slate-200">No social posts yet</h3>
-            <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
-              Be the first to share an update with the HeyLook community! Write a post above.
-            </p>
-          </div>
+          {/* Show Beacons Section */}
+          {beacons.length > 0 && (
+            <div className="space-y-4">
+              <div className="px-2 py-4">
+                <h3 className="text-sm font-bold text-slate-300 mb-4">📡 Active Beacons</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {beacons.slice(0, 6).map((beacon) => (
+                    <motion.div
+                      key={beacon.id}
+                      initial={{ y: 20, opacity: 0 }}
+                      animate={{ y: 0, opacity: 1 }}
+                      className="p-4 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 hover:border-cyan-500/40 transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-center gap-3 mb-3">
+                        <img
+                          src={beacon.author.avatar}
+                          alt={beacon.author.name}
+                          className="w-8 h-8 rounded-full object-cover border border-slate-600 group-hover:border-cyan-500/50"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-bold text-slate-200 truncate">{beacon.author.name}</p>
+                          <p className="text-[10px] text-slate-500">@{beacon.author.username}</p>
+                        </div>
+                      </div>
+                      {beacon.text_content && (
+                        <p className="text-xs text-slate-300 line-clamp-2 mb-2">{beacon.text_content}</p>
+                      )}
+                      {beacon.content_url && beacon.media_type === 'image' && (
+                        <img
+                          src={beacon.content_url}
+                          alt="Beacon"
+                          className="w-full h-24 object-cover rounded-lg mb-2"
+                        />
+                      )}
+                      <div className="flex items-center justify-between text-[10px] text-slate-500">
+                        <span>{beacon.ttl_setting}</span>
+                        <span>{beacon.allow_public_comments ? '💬' : '🔒'}</span>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="space-y-6">
+          {beacons.length > 0 && (
+            <div className="space-y-4">
+              <h3 className="px-2 text-sm font-bold text-slate-300">📡 Active Beacons</h3>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {beacons.slice(0, 6).map((beacon) => (
+                  <motion.div key={beacon.id} className="rounded-2xl border border-slate-700 bg-gradient-to-br from-slate-800 to-slate-900 p-4">
+                    <div className="mb-3 flex items-center gap-3">
+                      <img src={beacon.author.avatar} alt={beacon.author.name} className="h-8 w-8 rounded-full object-cover" />
+                      <div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-200">{beacon.author.name}</p><p className="text-[10px] text-slate-500">@{beacon.author.username}</p></div>
+                    </div>
+                    {beacon.text_content && <p className="line-clamp-2 text-xs text-slate-300">{beacon.text_content}</p>}
+                  </motion.div>
+                ))}
+              </div>
+            </div>
+          )}
           {posts.map((post) => {
             const isBookmarked = bookmarkedPosts[post.id];
             const reactionSummary = post.reactions_summary || { top_reactions: ['Like'], total_count: post.likes_count || 0 };
@@ -1116,16 +1223,73 @@ export const FeedTab: React.FC<FeedTabProps> = ({ currentUser, isDark }) => {
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-400">Story Image</label>
+              <label className="text-xs font-medium text-slate-400">Story Media</label>
               <input
                 type="file"
-                accept="image/*"
+                accept="image/*,video/*"
                 onChange={handleStoryFileSelect}
                 className="w-full mt-1 px-3 py-2 text-sm rounded-xl bg-slate-800 border border-slate-700 text-white focus:outline-none file:mr-3 file:rounded-full file:border-0 file:bg-cyan-600 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-white"
               />
               {storyFileName && (
                 <p className="mt-2 text-[11px] text-cyan-300">Selected: {storyFileName}</p>
               )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-400">Crop / fit</label>
+                <select
+                  value={storyCropMode}
+                  onChange={(e) => setStoryCropMode(e.target.value as 'fill' | 'cover' | 'fit')}
+                  className="w-full mt-1 px-3 py-2 text-sm rounded-xl bg-slate-800 border border-slate-700 text-white focus:outline-none"
+                >
+                  <option value="cover">Cover</option>
+                  <option value="fill">Fill</option>
+                  <option value="fit">Fit</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-slate-400">Auto-hide after</label>
+                <select
+                  value={storyExpiryMinutes}
+                  onChange={(e) => setStoryExpiryMinutes(Number(e.target.value))}
+                  className="w-full mt-1 px-3 py-2 text-sm rounded-xl bg-slate-800 border border-slate-700 text-white focus:outline-none"
+                >
+                  <option value={60}>1 hour</option>
+                  <option value={180}>3 hours</option>
+                  <option value={360}>6 hours</option>
+                  <option value={720}>12 hours</option>
+                  <option value={1440}>24 hours</option>
+                  <option value={10080}>7 days</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium text-slate-400">Video trim</label>
+              <div className="mt-2 space-y-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={storyTrimStart}
+                  onChange={(e) => setStoryTrimStart(Number(e.target.value))}
+                  className="w-full accent-cyan-500"
+                />
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={storyTrimEnd}
+                  onChange={(e) => setStoryTrimEnd(Number(e.target.value))}
+                  className="w-full accent-pink-500"
+                />
+                <div className="flex justify-between text-[10px] text-slate-400">
+                  <span>Start {storyTrimStart}%</span>
+                  <span>End {storyTrimEnd}%</span>
+                </div>
+              </div>
             </div>
 
             <div>

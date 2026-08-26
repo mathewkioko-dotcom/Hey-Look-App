@@ -1743,6 +1743,7 @@ export const ChatView: React.FC<ChatViewProps> = ({
             const idx = beacons.findIndex((b) => b.id === anchoredBeaconId);
             openBeaconViewerAt(idx >= 0 ? idx : 0);
           }}
+          onClearHistory={handleClearHistory}
         />
       )}
 

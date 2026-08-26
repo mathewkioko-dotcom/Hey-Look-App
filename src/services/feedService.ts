@@ -8,10 +8,30 @@ export interface StoryItem {
   user_name: string;
   user_avatar: string;
   media_url?: string;
+  media_type?: 'image' | 'video';
   created_at: string;
   privacy_level?: PrivacyLevel;
   viewer_count?: number;
+  expires_at?: string;
 }
+
+export const DEFAULT_STORY_TTL_MS = 24 * 60 * 60 * 1000;
+
+const isStoryVideoUrl = (url?: string): boolean => !!url && ((/\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) || url.startsWith('data:video/'));
+
+const getStoryExpiryTimestamp = (storyCreatedAt?: string): number => {
+  const created = storyCreatedAt ? new Date(storyCreatedAt).getTime() : Date.now();
+  return created + DEFAULT_STORY_TTL_MS;
+};
+
+const isStoryExpired = (story: any): boolean => {
+  const rawExpiry = story?.expires_at;
+  const fallbackExpiry = getStoryExpiryTimestamp(story?.created_at);
+  const expiryTime = rawExpiry ? new Date(rawExpiry).getTime() : fallbackExpiry;
+
+  if (!Number.isFinite(expiryTime)) return false;
+  return expiryTime <= Date.now();
+};
 
 /**
  * Recursive tree builder for nested comments
@@ -420,12 +440,13 @@ export const feedService = {
 
       if (error || !data) return [];
 
-      const visibleStories = data.filter((story: any) =>
-        story.user_id === currentUserId ||
-        story.privacy_level === 'Public' ||
-        story.privacy_level === 'Anchors Only' ||
-        !story.privacy_level
-      );
+      const visibleStories = data.filter((story: any) => {
+        if (isStoryExpired(story)) return false;
+        return story.user_id === currentUserId ||
+          story.privacy_level === 'Public' ||
+          story.privacy_level === 'Anchors Only' ||
+          !story.privacy_level;
+      });
 
       const userIds = Array.from(new Set(visibleStories.map((s: any) => s.user_id).filter(Boolean)));
       const ownStoryIds = visibleStories.filter((story: any) => story.user_id === currentUserId).map((story: any) => story.id);
@@ -450,9 +471,11 @@ export const feedService = {
           user_name: p.full_name || p.username || 'Story Creator',
           user_avatar: p.avatar_url || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
           media_url: s.media_url || s.image_url || s.cover_url,
+          media_type: isStoryVideoUrl(s.media_url || s.image_url || s.cover_url) ? 'video' : 'image',
           created_at: s.created_at,
           privacy_level: s.privacy_level || 'Public',
           viewer_count: viewerCounts.get(s.id) || 0,
+          expires_at: s.expires_at || new Date(getStoryExpiryTimestamp(s.created_at)).toISOString(),
         };
       });
     } catch (err) {
@@ -600,16 +623,26 @@ export const feedService = {
   async createStory(
     userId: string,
     mediaUrl: string,
-    privacyLevel: PrivacyLevel = 'Public'
+    privacyLevel: PrivacyLevel = 'Public',
+    options?: {
+      expiresAt?: string;
+      mediaType?: 'image' | 'video';
+      cropMode?: string;
+      trimStart?: number;
+      trimEnd?: number;
+    }
   ): Promise<boolean> {
     try {
       const finalMediaUrl = await feedService.uploadStoryMedia(userId, mediaUrl);
+
+      const effectiveExpiry = options?.expiresAt || new Date(Date.now() + DEFAULT_STORY_TTL_MS).toISOString();
 
       const { error } = await supabase.from('stories').insert({
         user_id: userId,
         media_url: finalMediaUrl,
         privacy_level: privacyLevel,
         created_at: new Date().toISOString(),
+        expires_at: effectiveExpiry,
       });
 
       if (error) {
@@ -620,6 +653,26 @@ export const feedService = {
       return true;
     } catch (err) {
       console.warn('[FeedService] Exception creating story:', err);
+      return false;
+    }
+  },
+
+  async deleteStory(storyId: string, userId: string): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from('stories')
+        .delete()
+        .eq('id', storyId)
+        .eq('user_id', userId);
+
+      if (error) {
+        console.warn('[FeedService] Story delete failed:', error.message);
+        return false;
+      }
+
+      return true;
+    } catch (err) {
+      console.warn('[FeedService] Story delete exception:', err);
       return false;
     }
   },
@@ -644,6 +697,20 @@ export const feedService = {
   },
 
   async setStoryReaction(storyId: string, userId: string, emoji: string | null): Promise<boolean> {
+    if (emoji) {
+      const { data: storyRecord } = await supabase.from('stories').select('user_id').eq('id', storyId).single();
+      if (storyRecord && storyRecord.user_id !== userId) {
+        await sendMessage({
+          sender_id: userId,
+          receiver_id: storyRecord.user_id,
+          text: `✨ Story reaction: ${emoji}`,
+          type: 'text',
+          metadata: { story_id: storyId },
+          created_at: new Date().toISOString(),
+        });
+      }
+    }
+
     const result = emoji
       ? await supabase.from('story_reactions').upsert({ story_id: storyId, user_id: userId, emoji }, { onConflict: 'story_id,user_id' })
       : await supabase.from('story_reactions').delete().eq('story_id', storyId).eq('user_id', userId);
@@ -705,6 +772,7 @@ export const feedService = {
           shares_count: r.shares_count || 0,
           saves_count: (reelSaves || []).filter((save: any) => save.reel_id === r.id).length || r.saves_count || 0,
           is_liked: (reelLikes || []).some((like: any) => like.reel_id === r.id && like.user_id === currentUserId),
+          is_saved: (reelSaves || []).some((save: any) => save.reel_id === r.id && save.user_id === currentUserId),
         };
       });
     } catch (err) {

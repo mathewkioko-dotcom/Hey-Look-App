@@ -76,6 +76,7 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark, initial
     setIsLoading(true);
     const fetchedReels = await feedService.fetchReels(currentUser.id);
     setReels(fetchedReels);
+    setSavedReels(Object.fromEntries(fetchedReels.map((reel) => [reel.id, Boolean(reel.is_saved)])));
     setIsLoading(false);
   };
 
@@ -246,7 +247,7 @@ export const ReelsTab: React.FC<ReelsTabProps> = ({ currentUser, isDark, initial
   ];
 
   return (
-    <div className="max-w-md mx-auto h-[calc(100vh-8.5rem)] relative rounded-3xl overflow-hidden shadow-2xl bg-black text-white flex flex-col justify-between select-none border border-slate-800">
+    <div className="max-w-md mx-auto h-[calc(100dvh-8.5rem)] relative rounded-3xl overflow-hidden shadow-2xl bg-black text-white flex flex-col justify-between select-none border border-slate-800">
       {/* Top Bar Header */}
       <div className="absolute top-0 left-0 right-0 z-30 p-4 bg-gradient-to-b from-black/90 via-black/40 to-transparent flex items-center justify-between">
         <div className="flex items-center gap-2">

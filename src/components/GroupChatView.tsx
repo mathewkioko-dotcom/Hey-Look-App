@@ -68,7 +68,13 @@ export const GroupChatView: React.FC<GroupChatViewProps> = ({ room, currentUser,
     if (!text || isSending || !canPost) return;
     setIsSending(true);
     setInputText("");
-    const sent = await sendRoomMessage(liveRoom.id, currentUser.id, text);
+    const mentioned_user_ids = members
+      .filter((member) => {
+        const username = member.profile?.username;
+        return username && new RegExp(`(^|\\s)@${username}(?=\\s|$)`, "i").test(text);
+      })
+      .map((member) => member.user_id);
+    const sent = await sendRoomMessage(liveRoom.id, currentUser.id, text, { mentioned_user_ids });
     if (sent) {
       setMessages((prev) => [...prev, { ...sent, is_me: true }]);
     }

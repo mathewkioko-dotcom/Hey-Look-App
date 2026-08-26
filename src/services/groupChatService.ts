@@ -29,6 +29,7 @@ function mapRoomRow(r: any, memberCount: number, myRole: "admin" | "member"): Ch
     max_upload_mb: r.max_upload_mb ?? 100,
     auto_delete_media: r.auto_delete_media || "Never",
     invite_code: r.invite_code || undefined,
+    member_visibility: r.member_visibility || "everyone",
   };
 }
 
@@ -69,6 +70,8 @@ export async function createRoom(
     const { error: memberError } = await supabase.from("room_members").insert(memberRows);
     if (memberError) {
       console.warn("[GroupChatService] Room members insert note:", memberError.message);
+      await supabase.from("chat_rooms").delete().eq("id", room.id);
+      return null;
     }
 
     return mapRoomRow(room, uniqueMemberIds.length, "admin");
@@ -238,7 +241,7 @@ export async function sendRoomMessage(
   roomId: string,
   senderId: string,
   text: string,
-  extra?: { type?: "text" | "image" | "video"; image_url?: string; video_url?: string; burn_at?: string },
+  extra?: { type?: "text" | "image" | "video"; image_url?: string; video_url?: string; burn_at?: string; mentioned_user_ids?: string[] },
 ): Promise<ChatMessage | null> {
   try {
     const id = generateUuid();
@@ -254,6 +257,7 @@ export async function sendRoomMessage(
       image_url: extra?.image_url,
       video_url: extra?.video_url,
       burn_at: extra?.burn_at || null,
+      mentioned_user_ids: extra?.mentioned_user_ids || [],
       created_at,
     });
     if (error) {
@@ -323,11 +327,26 @@ export interface RoomSettingsUpdate {
   enforce_rules?: boolean;
   max_upload_mb?: number;
   auto_delete_media?: ChatRoom["auto_delete_media"];
+  member_visibility?: ChatRoom["member_visibility"];
 }
 
 export async function updateRoomSettings(roomId: string, updates: RoomSettingsUpdate): Promise<boolean> {
   const { error } = await supabase.from("chat_rooms").update(updates).eq("id", roomId);
   if (error) console.warn("[GroupChatService] Update room settings note:", error.message);
+  return !error;
+}
+
+export async function updateRoomNotificationPreferences(
+  roomId: string,
+  userId: string,
+  mutedUntil: string | null,
+  mentionsOnly: boolean,
+): Promise<boolean> {
+  const { error } = await supabase.from("conversation_preferences").upsert(
+    { conversation_id: roomId, user_id: userId, muted_until: mutedUntil, mentions_only: mentionsOnly },
+    { onConflict: "conversation_id,user_id" },
+  );
+  if (error) console.warn("[GroupChatService] Notification preference note:", error.message);
   return !error;
 }
 

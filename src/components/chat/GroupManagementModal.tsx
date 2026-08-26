@@ -37,6 +37,7 @@ import {
   Loader2,
   Search,
   Eye,
+  Bell,
 } from "lucide-react";
 import { Profile, RoomMember, RoomJoinRequest, RoomEvent } from "../../types";
 import {
@@ -58,6 +59,7 @@ import {
   setRoomArchived,
   verifyPasswordAndTransferOwnership,
   fetchRoomMediaStats,
+  updateRoomNotificationPreferences,
 } from "../../services/groupChatService";
 
 type GroupView =
@@ -127,10 +129,6 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
 }) => {
   const [view, setView] = useState<GroupView>("hub");
   const [toast, setToast] = useState<string>("");
-
-  // When a real roomId is supplied, participants are loaded from the DB and
-  // replace the sample PARTICIPANTS array used when this modal is opened
-  // without a room context (kept for backward compatibility elsewhere).
   const [realMembers, setRealMembers] = useState<RoomMember[] | null>(null);
   const [realRoom, setRealRoom] = useState<import("../../types").ChatRoom | null>(null);
   const [realJoinRequests, setRealJoinRequests] = useState<RoomJoinRequest[] | null>(null);
@@ -157,6 +155,9 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
   const [permSend, setPermSend] = useState(true);
   const [permAddMembers, setPermAddMembers] = useState(true);
   const [permPin, setPermPin] = useState(true);
+  const [memberVisibility, setMemberVisibility] = useState<"everyone" | "admins_only">("everyone");
+  const [notificationMute, setNotificationMute] = useState<"off" | "8h" | "1w">("off");
+  const [mentionsOnly, setMentionsOnly] = useState(false);
 
   // Pending Approvals
   const [pending, setPending] = useState(PENDING_APPROVALS);
@@ -245,6 +246,7 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
     setPermSend(realRoom.allow_send ?? true);
     setPermAddMembers(realRoom.allow_add_members ?? true);
     setPermPin(realRoom.allow_pin ?? true);
+    setMemberVisibility(realRoom.member_visibility || "everyone");
     setAnnouncementMode(Boolean(realRoom.announcement_mode));
     setGroupDescription(realRoom.description || "");
     setGroupRules(realRoom.rules || "");
@@ -280,14 +282,16 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
     onClose();
   };
 
-  const Toggle: React.FC<{ on: boolean; onClick: () => void; color?: string }> = ({
+  const Toggle: React.FC<{ on: boolean; onClick: () => void; color?: string; disabled?: boolean }> = ({
     on,
     onClick,
     color = "bg-cyan-500",
+    disabled = false,
   }) => (
     <button
       onClick={onClick}
-      className={`w-12 h-7 rounded-full p-1 transition-colors cursor-pointer ${on ? color : "bg-slate-600"}`}
+      disabled={disabled}
+      className={`w-12 h-7 rounded-full p-1 transition-colors ${disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer"} ${on ? color : "bg-slate-600"}`}
     >
       <div
         className={`w-5 h-5 rounded-full bg-white shadow transition-transform ${on ? "translate-x-5" : ""}`}
@@ -310,6 +314,25 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
         <Shield className="w-4 h-4 text-amber-400" /> Admin controls — only group
         admins can modify these.
       </div>
+      <div className="space-y-3 rounded-2xl border border-slate-700 bg-slate-800/50 p-4">
+        <div className="flex items-center gap-3">
+          <Bell className="h-4 w-4 text-cyan-400" />
+          <div>
+            <p className="text-xs font-semibold text-slate-200">Your group notifications</p>
+            <p className="text-[10px] text-slate-500">Mute this group on your devices; mentions can still alert you.</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {([['off', 'On'], ['8h', '8 hours'], ['1w', '1 week']] as const).map(([value, label]) => (
+            <button key={value} onClick={() => setNotificationMute(value)} className={`rounded-xl border py-2 text-[10px] font-bold ${notificationMute === value ? "border-cyan-400 bg-cyan-500/15 text-cyan-300" : "border-slate-700 text-slate-400"}`}>{label}</button>
+          ))}
+        </div>
+        <label className="flex items-center justify-between text-xs text-slate-300">
+          <span>Notify only when mentioned</span>
+          <input type="checkbox" checked={mentionsOnly} onChange={(event) => setMentionsOnly(event.target.checked)} className="h-4 w-4 accent-cyan-500" />
+        </label>
+        <button onClick={() => { if (!roomId || !currentUser) return; const duration = notificationMute === "8h" ? 8 * 60 * 60 * 1000 : notificationMute === "1w" ? 7 * 24 * 60 * 60 * 1000 : 0; void updateRoomNotificationPreferences(roomId, currentUser.id, duration ? new Date(Date.now() + duration).toISOString() : null, mentionsOnly).then((saved) => { if (saved) showToast("Notification settings saved"); }); }} className="w-full rounded-xl bg-cyan-500 py-2.5 text-xs font-extrabold text-slate-950">Save notification settings</button>
+      </div>
       {[
         { label: "Edit Group Info", desc: "Allow members to change name, description & photo", val: permEditInfo, set: setPermEditInfo, icon: <PenLine className="w-4 h-4 text-cyan-400" /> },
         { label: "Send Messages", desc: "Allow members to post messages", val: permSend, set: setPermSend, icon: <Send className="w-4 h-4 text-emerald-400" /> },
@@ -327,12 +350,31 @@ export const GroupManagementModal: React.FC<GroupManagementModalProps> = ({
               <p className="text-[10px] text-slate-500">{p.desc}</p>
             </div>
           </div>
-          <Toggle on={p.val} onClick={() => p.set(!p.val)} />
+          <Toggle on={p.val} onClick={() => p.set(!p.val)} disabled={!isAdmin} />
         </div>
       ))}
+      <div className="flex items-center justify-between rounded-2xl border border-slate-700 bg-slate-800/50 p-4">
+        <div className="flex items-center gap-3">
+          <Eye className="h-4 w-4 text-amber-400" />
+          <div>
+            <p className="text-xs font-semibold text-slate-200">Member list visibility</p>
+            <p className="text-[10px] text-slate-500">Choose who can see the full group roster</p>
+          </div>
+        </div>
+        <select
+          value={memberVisibility}
+          onChange={(event) => setMemberVisibility(event.target.value as "everyone" | "admins_only")}
+          disabled={!isAdmin}
+          className="rounded-xl border border-slate-600 bg-slate-950 px-2 py-2 text-[10px] font-bold text-slate-200 outline-none disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <option value="everyone">Everyone</option>
+          <option value="admins_only">Admins only</option>
+        </select>
+      </div>
       <button
-        onClick={() => { if (roomId) void updateRoomSettings(roomId, { allow_edit_info: permEditInfo, allow_send: permSend, allow_add_members: permAddMembers, allow_pin: permPin }); showToast("Permissions saved"); }}
-        className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer"
+        onClick={() => { if (!roomId || !isAdmin) return; void updateRoomSettings(roomId, { allow_edit_info: permEditInfo, allow_send: permSend, allow_add_members: permAddMembers, allow_pin: permPin, member_visibility: memberVisibility }).then((saved) => { if (saved) showToast("Permissions saved"); }); }}
+        disabled={!isAdmin}
+        className="w-full py-3 rounded-2xl bg-cyan-500 text-slate-950 font-extrabold hover:bg-cyan-400 transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
       >
         Save Permissions
       </button>

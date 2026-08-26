@@ -23,6 +23,7 @@ import { AuthScreen } from "./AuthScreen";
 import { useCall } from "../context/CallContext";
 import { CallOverlay } from "./CallOverlay";
 import { supabase } from "../lib/supabase";
+import { enableWebPush, registerPushServiceWorker } from "../services/pushNotifications";
 
 interface AppNotification {
   id: string;
@@ -93,10 +94,27 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   };
 
   const enableNotifications = async () => {
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      await Notification.requestPermission();
+    if (typeof Notification === "undefined") return;
+
+    try {
+      const publicKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+      if (!publicKey) {
+        await Notification.requestPermission();
+        console.warn("[MainLayout] VITE_VAPID_PUBLIC_KEY is not configured.");
+        return;
+      }
+      const enabled = await enableWebPush(publicKey);
+      if (!enabled) console.warn("[MainLayout] Web Push permission was not granted.");
+    } catch (error) {
+      console.warn("[MainLayout] Web Push setup failed:", error);
     }
   };
+
+  useEffect(() => {
+    void registerPushServiceWorker().catch((error) => {
+      console.warn("[MainLayout] Service worker unavailable:", error);
+    });
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -245,7 +263,7 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
 
   return (
     <div
-      className={`min-h-screen w-full flex flex-col overflow-x-hidden transition-colors duration-300 ${
+      className={`h-[100dvh] w-full flex flex-col overflow-hidden transition-colors duration-300 ${
         isDark ? "bg-slate-950 text-slate-100" : "bg-slate-50 text-slate-900"
       }`}
     >
@@ -435,16 +453,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
       </AnimatePresence>
 
       {/* MAIN BODY CONTENT CONTAINER */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-2.5 py-3 sm:px-6 sm:py-6 pb-20 md:pb-24 overflow-x-hidden">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.2 }}
-            className="h-full"
-          >
+      <main className="min-h-0 flex-1 max-w-7xl w-full mx-auto px-2.5 py-3 sm:px-6 sm:py-6 pb-28 md:pb-28 overflow-x-hidden overflow-y-auto overscroll-contain">
+        <div className="h-full">
             {activeTab === "home" && (
               <HomeTab
                 currentUser={currentUser}
@@ -479,19 +489,18 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
                 onToggleTheme={onToggleTheme}
               />
             )}
-          </motion.div>
-        </AnimatePresence>
+        </div>
       </main>
 
       {/* 4-TAB BOTTOM NAVIGATION BAR (Responsive Mobile & Desktop Dock) */}
       <nav
-        className={`fixed bottom-0 inset-x-0 z-50 border-t backdrop-blur-2xl transition-colors w-full ${
+        className={`fixed bottom-0 inset-x-0 z-50 h-[calc(4.5rem+env(safe-area-inset-bottom))] border-t pb-[env(safe-area-inset-bottom)] backdrop-blur-2xl transition-colors w-full ${
           isDark
             ? "bg-slate-900/90 border-slate-800/80 shadow-2xl"
             : "bg-white/90 border-slate-200 shadow-lg"
         }`}
       >
-        <div className="max-w-md mx-auto flex items-center justify-around p-2 py-2.5 w-full">
+        <div className="mx-auto flex h-full max-w-md items-center justify-around px-2 py-1.5 w-full">
           <button
             onClick={() => setActiveTab("home")}
             className={`flex flex-col items-center gap-1 p-1.5 px-3 rounded-2xl transition-all cursor-pointer ${activeTab === "home" ? "text-cyan-500 font-bold bg-cyan-500/10 scale-105" : "text-slate-400"}`}

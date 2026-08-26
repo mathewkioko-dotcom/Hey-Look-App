@@ -51,6 +51,7 @@ export interface ChatRoom {
   max_upload_mb?: number;
   auto_delete_media?: "Never" | "After 30 days" | "After 90 days" | "After 1 year";
   invite_code?: string;
+  member_visibility?: "everyone" | "admins_only";
 }
 
 export interface RoomJoinRequest {
@@ -246,6 +247,7 @@ export interface ReelItem {
   shares_count: number;
   saves_count: number;
   is_liked: boolean;
+  is_saved?: boolean;
 }
 
 export interface BeaconComment {

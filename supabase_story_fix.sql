@@ -37,11 +37,13 @@ CREATE TABLE IF NOT EXISTS public.stories (
   media_url TEXT NOT NULL,
   privacy_level TEXT NOT NULL DEFAULT 'Public',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  expires_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '1 day'),
   CONSTRAINT check_story_privacy_level CHECK (privacy_level IN ('Public', 'Only Me', 'Anchors Only'))
 );
 
 ALTER TABLE public.stories ADD COLUMN IF NOT EXISTS media_url TEXT;
 ALTER TABLE public.stories ADD COLUMN IF NOT EXISTS privacy_level TEXT NOT NULL DEFAULT 'Public';
+ALTER TABLE public.stories ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE DEFAULT (NOW() + INTERVAL '1 day');
 ALTER TABLE public.stories ALTER COLUMN media_url SET NOT NULL;
 
 ALTER TABLE public.stories DROP CONSTRAINT IF EXISTS check_story_privacy_level;
@@ -109,6 +111,7 @@ ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_encrypted BOOLEAN DEFAUL
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS delivery_state SMALLINT DEFAULT 1;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS status SMALLINT DEFAULT 1;
 ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS is_read BOOLEAN DEFAULT false;
+ALTER TABLE public.messages ADD COLUMN IF NOT EXISTS mentioned_user_ids UUID[] DEFAULT '{}'::UUID[];
 
 ALTER TABLE public.messages ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can read their messages" ON public.messages;
@@ -251,8 +254,17 @@ CREATE TABLE IF NOT EXISTS public.notifications (
   target_id UUID,
   message TEXT NOT NULL,
   read_at TIMESTAMP WITH TIME ZONE,
+  room_id UUID,
+  message_id UUID,
+  priority TEXT NOT NULL DEFAULT 'normal',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
+
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS room_id UUID;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS message_id UUID;
+ALTER TABLE public.notifications ADD COLUMN IF NOT EXISTS priority TEXT NOT NULL DEFAULT 'normal';
+
+ALTER TABLE public.conversation_preferences ADD COLUMN IF NOT EXISTS mentions_only BOOLEAN NOT NULL DEFAULT false;
 
 ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can read their notifications" ON public.notifications;
@@ -265,11 +277,61 @@ DROP POLICY IF EXISTS "Users can clear their notifications" ON public.notificati
 CREATE POLICY "Users can clear their notifications" ON public.notifications
   FOR DELETE TO authenticated USING (auth.uid() = recipient_id);
 
+-- Create reaction/view tables before installing triggers that reference them.
+CREATE TABLE IF NOT EXISTS public.story_reactions (
+  story_id UUID NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
+  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  emoji TEXT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (story_id, user_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.story_views (
+  story_id UUID NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
+  viewer_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  viewed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (story_id, viewer_id)
+);
+
+CREATE TABLE IF NOT EXISTS public.follows (
+  follower_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  following_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  PRIMARY KEY (follower_id, following_id),
+  CONSTRAINT follows_not_self CHECK (follower_id <> following_id)
+);
+
 CREATE OR REPLACE FUNCTION public.create_activity_notification()
 RETURNS TRIGGER LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
 DECLARE recipient UUID; actor UUID; target UUID; kind_name TEXT; notification_text TEXT;
 BEGIN
   IF TG_TABLE_NAME = 'messages' THEN
+    IF NEW.room_id IS NOT NULL THEN
+      INSERT INTO notifications (recipient_id, actor_id, kind, target_id, message, room_id, message_id, priority)
+      SELECT
+        members.user_id,
+        NEW.sender_id,
+        CASE WHEN members.user_id = ANY(COALESCE(NEW.mentioned_user_ids, '{}'::UUID[])) THEN 'group_mention' ELSE 'group_message' END,
+        NEW.id,
+        COALESCE(NULLIF(NEW.text, ''), CASE WHEN NEW.type = 'video' THEN 'Sent a video' WHEN NEW.type = 'image' THEN 'Sent a photo' ELSE 'Sent a message' END),
+        NEW.room_id,
+        NEW.id,
+        CASE WHEN members.user_id = ANY(COALESCE(NEW.mentioned_user_ids, '{}'::UUID[])) THEN 'high' ELSE 'normal' END
+      FROM room_members AS members
+      LEFT JOIN conversation_preferences AS preferences
+        ON preferences.conversation_id = NEW.room_id::TEXT
+       AND preferences.user_id = members.user_id
+      WHERE members.room_id = NEW.room_id
+        AND members.user_id <> NEW.sender_id
+        AND (
+          (
+            COALESCE(preferences.muted_until, 'epoch'::TIMESTAMPTZ) <= NOW()
+            AND NOT COALESCE(preferences.mentions_only, false)
+          )
+          OR members.user_id = ANY(COALESCE(NEW.mentioned_user_ids, '{}'::UUID[]))
+        );
+      RETURN NEW;
+    END IF;
     recipient := NEW.receiver_id; actor := NEW.sender_id; target := NEW.id; kind_name := 'message';
     notification_text := COALESCE(NULLIF(NEW.text, ''), CASE WHEN NEW.type = 'video' THEN 'Sent you a video' WHEN NEW.type = 'image' THEN 'Sent you a photo' ELSE 'Sent you a message' END);
   ELSIF TG_TABLE_NAME = 'follows' THEN
@@ -283,7 +345,8 @@ BEGIN
   ELSE RETURN NEW;
   END IF;
   IF recipient IS NOT NULL AND actor IS DISTINCT FROM recipient THEN
-    INSERT INTO notifications (recipient_id, actor_id, kind, target_id, message) VALUES (recipient, actor, kind_name, target, notification_text);
+    INSERT INTO notifications (recipient_id, actor_id, kind, target_id, message, message_id, priority)
+    VALUES (recipient, actor, kind_name, target, notification_text, target, 'high');
   END IF;
   RETURN NEW;
 END;
@@ -299,14 +362,6 @@ DROP TRIGGER IF EXISTS notify_post_like ON public.likes;
 CREATE TRIGGER notify_post_like AFTER INSERT ON public.likes FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
 DROP TRIGGER IF EXISTS notify_post_comment ON public.comments;
 CREATE TRIGGER notify_post_comment AFTER INSERT ON public.comments FOR EACH ROW EXECUTE FUNCTION public.create_activity_notification();
-
-CREATE TABLE IF NOT EXISTS public.follows (
-  follower_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  following_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  PRIMARY KEY (follower_id, following_id),
-  CONSTRAINT follows_not_self CHECK (follower_id <> following_id)
-);
 
 ALTER TABLE public.follows ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending';
 ALTER TABLE public.follows DROP CONSTRAINT IF EXISTS follows_status_check;
@@ -326,22 +381,6 @@ CREATE POLICY "Users can mutiny from a fleet" ON public.follows
 DROP POLICY IF EXISTS "Users can respond to fleet requests" ON public.follows;
 CREATE POLICY "Users can respond to fleet requests" ON public.follows
   FOR UPDATE TO authenticated USING (auth.uid() = following_id) WITH CHECK (auth.uid() = following_id);
-
--- Story reactions and unique viewers.
-CREATE TABLE IF NOT EXISTS public.story_reactions (
-  story_id UUID NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
-  user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  emoji TEXT NOT NULL,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  PRIMARY KEY (story_id, user_id)
-);
-
-CREATE TABLE IF NOT EXISTS public.story_views (
-  story_id UUID NOT NULL REFERENCES public.stories(id) ON DELETE CASCADE,
-  viewer_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  viewed_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  PRIMARY KEY (story_id, viewer_id)
-);
 
 ALTER TABLE public.story_reactions ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Users can view story reactions" ON public.story_reactions;
@@ -378,8 +417,13 @@ CREATE TABLE IF NOT EXISTS public.chat_rooms (
   avatar_url TEXT,
   description TEXT,
   created_by UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  member_visibility TEXT NOT NULL DEFAULT 'everyone'
 );
+
+ALTER TABLE public.chat_rooms ADD COLUMN IF NOT EXISTS member_visibility TEXT NOT NULL DEFAULT 'everyone';
+ALTER TABLE public.chat_rooms DROP CONSTRAINT IF EXISTS chat_rooms_member_visibility_check;
+ALTER TABLE public.chat_rooms ADD CONSTRAINT chat_rooms_member_visibility_check CHECK (member_visibility IN ('everyone', 'admins_only'));
 
 CREATE TABLE IF NOT EXISTS public.room_members (
   room_id UUID NOT NULL REFERENCES public.chat_rooms(id) ON DELETE CASCADE,
@@ -390,10 +434,31 @@ CREATE TABLE IF NOT EXISTS public.room_members (
 );
 
 ALTER TABLE public.chat_rooms ENABLE ROW LEVEL SECURITY;
+CREATE OR REPLACE FUNCTION public.is_room_member(p_room_id UUID, p_user_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.room_members
+    WHERE room_id = p_room_id AND user_id = p_user_id
+  );
+$$;
+
+CREATE OR REPLACE FUNCTION public.is_room_admin(p_room_id UUID, p_user_id UUID)
+RETURNS BOOLEAN LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.room_members
+    WHERE room_id = p_room_id AND user_id = p_user_id AND role = 'admin'
+  );
+$$;
+
+REVOKE EXECUTE ON FUNCTION public.is_room_member(UUID, UUID) FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION public.is_room_admin(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_room_member(UUID, UUID) TO authenticated;
+GRANT EXECUTE ON FUNCTION public.is_room_admin(UUID, UUID) TO authenticated;
+
 DROP POLICY IF EXISTS "Members can view their rooms" ON public.chat_rooms;
 CREATE POLICY "Members can view their rooms" ON public.chat_rooms
   FOR SELECT TO authenticated USING (
-    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid())
+    created_by = auth.uid() OR public.is_room_member(id, auth.uid())
   );
 DROP POLICY IF EXISTS "Users can create rooms" ON public.chat_rooms;
 CREATE POLICY "Users can create rooms" ON public.chat_rooms
@@ -401,36 +466,44 @@ CREATE POLICY "Users can create rooms" ON public.chat_rooms
 DROP POLICY IF EXISTS "Admins can update rooms" ON public.chat_rooms;
 CREATE POLICY "Admins can update rooms" ON public.chat_rooms
   FOR UPDATE TO authenticated USING (
-    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+    public.is_room_admin(id, auth.uid())
   ) WITH CHECK (
-    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+    public.is_room_admin(id, auth.uid())
   );
 DROP POLICY IF EXISTS "Admins can delete rooms" ON public.chat_rooms;
 CREATE POLICY "Admins can delete rooms" ON public.chat_rooms
   FOR DELETE TO authenticated USING (
-    EXISTS (SELECT 1 FROM public.room_members WHERE room_members.room_id = chat_rooms.id AND room_members.user_id = auth.uid() AND room_members.role = 'admin')
+    created_by = auth.uid() OR public.is_room_admin(id, auth.uid())
   );
 
 ALTER TABLE public.room_members ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Members can view room membership" ON public.room_members;
 CREATE POLICY "Members can view room membership" ON public.room_members
   FOR SELECT TO authenticated USING (
-    EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid())
+    user_id = auth.uid()
+    OR EXISTS (
+      SELECT 1 FROM public.chat_rooms
+      WHERE chat_rooms.id = room_members.room_id
+        AND (
+          chat_rooms.member_visibility = 'everyone' AND public.is_room_member(room_members.room_id, auth.uid())
+          OR chat_rooms.member_visibility = 'admins_only' AND public.is_room_admin(room_members.room_id, auth.uid())
+        )
+    )
   );
 -- (INSERT policy for room_members is defined further below, once the
 -- allow_add_members column exists on chat_rooms, so it can factor that in.)
 DROP POLICY IF EXISTS "Admins can update member roles" ON public.room_members;
 CREATE POLICY "Admins can update member roles" ON public.room_members
   FOR UPDATE TO authenticated USING (
-    EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+    public.is_room_admin(room_id, auth.uid())
   ) WITH CHECK (
-    EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+    public.is_room_admin(room_id, auth.uid())
   );
 DROP POLICY IF EXISTS "Members can leave or admins can remove" ON public.room_members;
 CREATE POLICY "Members can leave or admins can remove" ON public.room_members
   FOR DELETE TO authenticated USING (
     auth.uid() = user_id
-    OR EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+    OR public.is_room_admin(room_id, auth.uid())
   );
 
 -- Group/channel messages reuse the existing `messages` table (room_id set,
@@ -592,11 +665,12 @@ CREATE POLICY "Creators and admins can add members" ON public.room_members
   FOR INSERT TO authenticated WITH CHECK (
     auth.uid() = user_id
     OR EXISTS (SELECT 1 FROM public.chat_rooms WHERE chat_rooms.id = room_members.room_id AND chat_rooms.created_by = auth.uid())
-    OR EXISTS (SELECT 1 FROM public.room_members rm2 WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid() AND rm2.role = 'admin')
+    OR public.is_room_admin(room_id, auth.uid())
     OR EXISTS (
-      SELECT 1 FROM public.room_members rm2, public.chat_rooms
-      WHERE rm2.room_id = room_members.room_id AND rm2.user_id = auth.uid()
-        AND chat_rooms.id = room_members.room_id AND chat_rooms.allow_add_members
+      SELECT 1 FROM public.chat_rooms
+      WHERE chat_rooms.id = room_members.room_id
+        AND public.is_room_member(room_id, auth.uid())
+        AND chat_rooms.allow_add_members
     )
   );
 
